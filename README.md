@@ -1,6 +1,4 @@
 # ildz-compiler
-> **Status:** Development is currently paused. This repository is preserved for future continuation.
-
 ## Overview
 Compiler for the **Ildz programming language**, a minimal low-level language that compiles **directly to x86/x86-64 machine code** and produces native **Windows PE executables**. There is no intermediate runtime, virtual machine, or external dependency layer.
 
