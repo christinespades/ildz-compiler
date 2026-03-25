@@ -1,3 +1,6 @@
+# This file contains multiple versions of the compiler, or, more precisely,
+# multiple incomplete attempts from different angles. I need to clean this up!!!!
+# 
 #!/usr/bin/env python3
 # ildz.py — tiny bootstrap compiler: syntax -> C -> native exe -> run
 # Works on Windows/macOS/Linux with clang/gcc/cl/tcc (first one found).
@@ -834,3 +837,150 @@ if __name__ == "__main__":
     run = subprocess.run([exe], capture_output=False)
     if run.returncode != 0: raise RuntimeError("Program exited with non-zero status")
     print(f"Built and ran: {exe}\n(Temp dir: {tmp})")
+
+# Generate the .exe? This code below is from another prototype..
+import struct
+TEXT_RVA = 0x1000
+IDATA_RVA = 0x2000
+
+def build_idata():
+    kernel_name = b"kernel32.dll\x00"
+    func_name = b"\x00\x00ExitProcess\x00"
+
+    desc_rva = IDATA_RVA
+    ilt_rva  = IDATA_RVA + 0x28
+    iat_rva  = ilt_rva + 8
+    name_rva = iat_rva + 8
+    dll_rva  = name_rva + len(func_name)
+
+    import_desc = struct.pack("<IIIII",
+        ilt_rva, 0, 0, dll_rva, iat_rva
+    )
+
+    idata = bytearray()
+    idata += import_desc
+    idata += b"\x00" * 20           # null descriptor
+    idata += struct.pack("<Q", name_rva)  # ILT
+    idata += b"\x00" * 8
+    idata += struct.pack("<Q", name_rva)  # IAT
+    idata += b"\x00" * 8
+    idata += func_name
+    idata += kernel_name
+
+    return bytes(idata), iat_rva
+
+
+def write_ildz_compiler(path="ildz.exe"):
+    FILE_ALIGN = 0x200
+    SECT_ALIGN = 0x1000
+    TEXT_RAW = FILE_ALIGN
+    IDATA_RAW = FILE_ALIGN + FILE_ALIGN
+
+    code = (
+        b"\x31\xC9"                          # xor ecx, ecx
+        + b"\x48\xA1" + struct.pack("<Q", 0) # mov rax, [IAT placeholder]
+        + b"\xFF\xD0"                        # call rax
+    )
+    
+    # --- DOS header ---
+    dos = b"MZ" + b"\x00" * 58
+    e_lfanew = 0x80
+    dos += struct.pack("<I", e_lfanew)
+    dos += b"\x00" * (e_lfanew - len(dos))
+
+    # --- PE signature ---
+    pe_sig = b"PE\x00\x00"
+
+    # --- COFF file header ---
+    file_header = struct.pack(
+        "<HHIIIHH",
+        0x8664,    # Machine: x86-64
+        2,         # NumberOfSections
+        0, 0, 0,
+        0xF0,      # SizeOfOptionalHeader
+        0x22       # Characteristics
+    )
+
+    # --- Optional header (PE32+) ---
+    optional_header = struct.pack(
+        "<HBBIII"       # Magic, Linker, SizeOfCode/InitData/UninitData
+        "II"            # AddressOfEntryPoint, BaseOfCode
+        "QII"           # ImageBase, SectionAlignment, FileAlignment
+        "HHHHHH"        # Major/Minor OS, Image, Subsystem versions
+        "III"           # Win32VersionValue, SizeOfImage, SizeOfHeaders
+        "HH"            # Checksum, Subsystem
+        "QQQQ"          # StackReserve, StackCommit, HeapReserve, HeapCommit
+        "II",           # LoaderFlags, NumberOfRvaAndSizes
+        0x20B, 0, 0, len(code), 0, 0,   # first 6 fields
+        0x1000, 0x1000, 0x140000000, SECT_ALIGN, FILE_ALIGN,
+        6, 0, 0, 0, 6, 0,
+        0, 0x3000, FILE_ALIGN,
+        0, 3,
+        0x100000, 0x1000, 0x100000, 0x1000,
+        0, 16
+    )
+
+
+
+
+    idata, exitprocess_iat = build_idata()
+    code = code.replace(struct.pack("<Q", 0), struct.pack("<Q", exitprocess_iat))
+    code_padded = code + b"\x00" * (FILE_ALIGN - len(code))
+
+    idata_section = struct.pack(
+        "<8sIIIIIIHHI",
+        b".idata\x00\x00",
+        len(idata),
+        IDATA_RVA,
+        FILE_ALIGN,
+        IDATA_RAW,
+        0, 0, 0, 0,
+        0x40000040
+    )
+
+    data_dirs = (
+        struct.pack("<II", IDATA_RVA, len(idata)) +
+        b"\x00" * (15 * 8)
+    )
+
+    # --- .text section header ---
+    section_header = struct.pack(
+        "<8sIIIIIIHHI",
+        b".text\x00\x00\x00",
+        len(code),
+        TEXT_RVA,
+        FILE_ALIGN,
+        TEXT_RAW,
+        0, 0, 0, 0,
+        0x60000020
+    )
+
+    with open(path, "wb") as f:
+        f.write(dos)
+        f.write(pe_sig)
+        f.write(file_header)
+        f.write(optional_header)
+        f.write(data_dirs)
+
+        # section headers (ORDER MATTERS)
+        f.write(section_header)     # .text
+        f.write(idata_section)      # .idata
+
+        # pad headers to FILE_ALIGN
+        header_pad = (FILE_ALIGN - (f.tell() % FILE_ALIGN)) % FILE_ALIGN
+        f.write(b"\x00" * header_pad)
+
+        # .text section body
+        f.write(code_padded)
+
+        # pad to next section
+        f.write(b"\x00" * (FILE_ALIGN - len(code_padded)))
+
+        # .idata section body
+        f.write(idata)
+
+
+    print("ildz.exe written")
+
+if __name__ == "__main__":
+    write_ildz_compiler()
