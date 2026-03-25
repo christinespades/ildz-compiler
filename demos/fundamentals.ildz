@@ -1,19 +1,50 @@
-|this is a comment. we dont have inline or multiline comments.
-pr program started |print statement.
-x 10
-y 20
-if x < y
-    pr x < y
-    pr x + y
-      pr nope
-.| end of branch statement.
-pr ||add 3, 4 |print result of function call.
-add| a, b.ret a + b. |function def.
+|this is a comment. we dont have inline or multiline comments
+
+|whitespace and indendation matters, but empty lines dont
+
+|every file has access to all the symbols in the ildz library (all subfolders in the ildz folder)
+|those are all globals
+|everything in any .ildz file outside of the ildz folder are locals
+|if you want to make a global variable you must do so with a indent block before any code
+    myglobal = this is a global string |we know its a string
+
+|that global will be available in any .ildz file within the same directory and within subfolders
+
+pr program started |print statement
+
+x = 10 |var declaration and assignment. we know its an int since theres no decimals
+|the compiler determines size of numerics based on max/min value possibly reached
+
+y = 20.2 |we know this is a float
+
+.abranch |funcdef. this func is never called so it will be eliminated
+    if x < y
+        pr x < y
+        pr x + y
+            pr nope
+            |indentation inside a branch statement means else
+
+    |back to original indent: end of if
+|back to top-level indent: end of function
+
+pr ..add 3, 4
+|print result of funccall. a funccall is signalled by two sequential punctums
+|unlike python we can call functions before they are declared
+|we defer the resolution of this specific symbol
+|at the end of compilation we check deferred symbols before throwing an error
+
+.add a, b
+    |space after a funcdef signals args, which are separated with commas
+    ret a + b
 
 if x < y
     pr case 1
-if x y
+
+if x = y
     pr case 2
     pr default
-sera| text.pr text.
-||sera hello
+
+.sera text
+    pr text
+
+..sera hello
