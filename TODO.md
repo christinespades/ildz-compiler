@@ -17,10 +17,10 @@ improve the compiler logging/feedback
 rewrite ildzium engine (my game engine) in ildz
 continue work on that, probably finding more development potential for ildz
 would love to get all the various ai, math and cryptography instruction thingies back up and running
-maybe open source and get help with bug discovery etc.
-maybe rewrite ildrathia (my game) there
-or just a very simple 2d pixel thing
-share some demos of these things
-then consider adding more platform and hardware support for the language, potentially recruiting
+maybe open source and get help with bug discovery etc.  
+maybe rewrite ildrathia (my game) there  
+or just a very simple 2d pixel thing 
+share some demos of these things 
+then consider adding more platform and hardware support for the language, potentially recruiting 
 rest of the owl  
 if id get here id probably write exclusively in ildz and be very proud  
