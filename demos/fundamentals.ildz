@@ -1,0 +1,19 @@
+|this is a comment. we dont have inline or multiline comments.
+pr program started |print statement.
+x 10
+y 20
+if x < y
+    pr x < y
+    pr x + y
+      pr nope
+.| end of branch statement.
+pr ||add 3, 4 |print result of function call.
+add| a, b.ret a + b. |function def.
+
+if x < y
+    pr case 1
+if x y
+    pr case 2
+    pr default
+sera| text.pr text.
+||sera hello
