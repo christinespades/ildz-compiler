@@ -22,5 +22,5 @@ maybe rewrite ildrathia (my game) there
 or just a very simple 2d pixel thing
 share some demos of these things
 then consider adding more platform and hardware support for the language, potentially recruiting
-rest of the owl
-if id get here id probably write exclusively in ildz and be very proud
+rest of the owl  
+if id get here id probably write exclusively in ildz and be very proud  
