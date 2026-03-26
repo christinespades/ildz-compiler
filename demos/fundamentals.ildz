@@ -6,7 +6,7 @@
 |those are all globals
 |everything in any .ildz file outside of the ildz folder are locals
 |if you want to make a global variable you must do so with a indent block before any code
-    myglobal = this is a global string |we know its a string
+    myglobal = this is a global string |we know its a string because the value doesnt start with a number but a letter. the string ends when the | denotes a comment or the line ends
 
 |that global will be available in any .ildz file within the same directory and within subfolders
 
@@ -22,7 +22,7 @@ y = 20.2 |we know this is a float
         pr x < y
         pr x + y
             pr nope
-            |indentation inside a branch statement means else
+            |indentation inside a branch statement means else (THIS IS NOT AMBIGUOUS; INSIDE BRANCH INDENTATION IS THE ELSE CONDITION THING)
 
     |back to original indent: end of if
 |back to top-level indent: end of function
@@ -40,9 +40,12 @@ pr ..add 3, 4
 if x < y
     pr case 1
 
-if x = y
+if x == y
     pr case 2
     pr default
+
+fr x < y
+    x + 1
 
 .sera text
     pr text
