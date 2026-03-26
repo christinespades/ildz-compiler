@@ -62,3 +62,10 @@ This repository is proprietary software.
 Unauthorized copying, modification, redistribution, hosting, or commercial use is strictly prohibited.
 
 No license is granted except by explicit written permission from the author.
+
+# Fundamentals
+in demos/fundamentals.py you see some of this
+
+blank lines always skipped
+tabs/4 spaces for indentation
+indentation levels start/end functions and branches
