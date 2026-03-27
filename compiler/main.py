@@ -2,7 +2,7 @@ from lexer import Lexer
 from parser import Parser
 from codegen import Codegen
 
-with open("input.ildz") as f:
+with open("main.ildz") as f:
     source = f.read()
 
 lexer = Lexer(source)
