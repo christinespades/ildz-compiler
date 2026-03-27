@@ -1,6 +1,5 @@
-# This file contains multiple versions of the compiler, or, more precisely,
-# multiple incomplete attempts from different angles. I need to clean this up!!!!
-# 
+# This file contains multiple versions of the compiler, or, more precisely, bits and pieces.. I need to clean this up!!!!
+
 #!/usr/bin/env python3
 # ildz.py — tiny bootstrap compiler: syntax -> C -> native exe -> run
 # Works on Windows/macOS/Linux with clang/gcc/cl/tcc (first one found).
