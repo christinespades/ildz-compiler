@@ -1,13 +1,15 @@
 |this is a comment. we dont have inline or multiline comments
 
-|whitespace and indendation matters, but empty lines dont
+|whitespace and indendation matters, but empty lines dont; always skipped
+|tabs/4 spaces for indentation
+|indentation levels start and end global/local space, functions and branches
 
-|every file has access to all the symbols in the ildz library (all subfolders in the ildz folder)
-|those are all globals
-|everything in any .ildz file outside of the ildz folder are locals
-|if you want to make a global variable you must do so with a indent block before any code
+|every file has access to all the symbols in the ildz library (everything below /core)
+|all global symbols and all functions in those files are available everywhere (because they are in a subdirectory of the compiler)
+|all symbols within a function is always local
+|everything in any .ildz file outside of /core are local symbols by default
+|if you want to make a global variable or function, you must do so with a indent block before any code
     myglobal = this is a global string |we know its a string because the value doesnt start with a number but a letter. the string ends when the | denotes a comment or the line ends
-
 |that global will be available in any .ildz file within the same directory and within subfolders
 
 pr program started |print statement
@@ -22,7 +24,7 @@ y = 20.2 |we know this is a float
         pr x < y
         pr x + y
             pr nope
-            |indentation inside a branch statement means else (THIS IS NOT AMBIGUOUS; INSIDE BRANCH INDENTATION IS THE ELSE CONDITION THING)
+            |indentation inside a branch statement means else (this is not ambiguous; when inside a branch, indentation denotes the "else")
 
     |back to original indent: end of if
 |back to top-level indent: end of function

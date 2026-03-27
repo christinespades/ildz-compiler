@@ -1,7 +1,6 @@
 finish linguist setup and base syntax  
 get colors, highlighting  
-rewrite the bootstrap.py  
-compile and expand fundamentals.py until ildz.py can fully be written in ildz.ildz and thus bootstrap ildz.exe  
+compile and expand until ildz.py can fully be written in ildz.ildz and thus bootstrap ildz.exe  
 start replacing clib functions, adding the needed instructions  
 recompile the ildz.exe until c is fully gone  
 build out the compiler stages, optimization passes  

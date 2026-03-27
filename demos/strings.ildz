@@ -1,9 +1,0 @@
-|if you want a really long string you do just that
-
-astring = sadkjjkkjsakdjaskjdjkasjdddddddddddddddddddddddd ghudufghdfug dfhugdhghue eurug eurg ufdh g hudfhg dh fug fduhguh dfuhg hfdughu fduhg dfuhg dufh hs udfsudf usdfusd fhusd ufhsdu fusdhf hsduufh sduhf sudhfsf
-
-|it has to be on the same line, so the editor you use should wrap lines for you if you want that
-
-anotherstring = sdfsdf
-fgjkkdfg |this will not work unless a var called "fgjkkdfg" exists.
-|the parser will assume this is a variable you want to nullify
