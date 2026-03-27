@@ -1,0 +1,18 @@
+source = re,,main.ildz
+|this replaces with open("main.ildz") as f:
+|source = f.read()
+
+lexer = lexer.ildz,,source
+tokens = lexer,,tokenize
+
+ast = parser.ildz,,tokens
+|this assigns the ast object the return value of the first function in parser.ildz
+|assuming it takes one argument
+
+output = codegen.ildz,,ast
+wr output
+|similarly for with open("out.txt", "w") as f:
+|f.write(output)
+
+rn output
+|rn is the run keyword. it launches a file/process on windows, be it a .exe, .txt or anything else

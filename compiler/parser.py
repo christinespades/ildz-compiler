@@ -34,8 +34,12 @@ class Parser:
             return self.while_stmt()
         if tok.type == "PRINT":
             return self.print_stmt()
+        if tok.type == "READ":
+            return self.read_stmt()
         if tok.type == "RETURN":
             return self.return_stmt()
+        if tok.type == "WRITE":
+            return self.write_stmt()
 
         return self.expr()
 
@@ -107,8 +111,16 @@ class Parser:
         self.consume("PRINT")
         return Print(self.expr())
 
+    def read_stmt(self):
+        self.consume("READ")
+        return Return(self.expr())
+
     def return_stmt(self):
         self.consume("RETURN")
+        return Return(self.expr())
+
+    def write_stmt(self):
+        self.consume("WRITE")
         return Return(self.expr())
 
     def expr(self):
