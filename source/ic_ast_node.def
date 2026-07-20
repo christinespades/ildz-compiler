@@ -1,0 +1,29 @@
+
+typedef enum
+{
+#define X(name) name,
+#include "ast_node_type.def"
+#undef X
+} ASTNodeType;
+const char* ASTNodeType_to_string(ASTNodeType val)
+{
+    switch (val)
+    {
+#define X(name) case name: return #name;
+#include "ast_node_type.def"
+#undef X
+    default:
+        return "<unknown>";
+    }
+}
+
+typedef struct ASTNode {
+    ASTNodeType type;
+    struct ASTNode* next;        // Sibling linking (e.g., next statement)
+    struct ASTNode* children;    // First child node (e.g., body of function)
+    StringView lexeme;
+    union {
+        int64_t int_value;       // Raw data for constants
+        int op;          // or BinaryOp/ConditionOp
+    } as;
+} ASTNode;

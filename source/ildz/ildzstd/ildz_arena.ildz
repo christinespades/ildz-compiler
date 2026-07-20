@@ -1,0 +1,22 @@
+fn v hey
+    str var
+    u8 var2 eq 27
+    var eq true
+    var plueq var2
+    print var
+
+struct Arena
+    u8.ptr memory
+    u64 capacity
+    u64 offset
+
+#fn T.ptr arena_alloc Arena arena
+#    if arena.offset + T.size > arena.capacity
+#        ret null
+#    T.ptr ptr equal arena.memory + arena.offset
+#    arena.offset += T.size
+#    ret ptr
+#
+#e.g. ASTNode.ptr root_prog equal arena_alloc arena
+
+

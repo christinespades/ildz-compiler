@@ -1,0 +1,14 @@
+
+#define DBL_MAX 1.7976931348623157e308
+#define FLT_MAX 3.4028234663852886e38
+
+static bool f32_is_finite(float x)
+{
+    return x <= FLT_MAX && x >= -FLT_MAX;
+}
+
+static bool f64_is_finite(double x)
+{
+    return x <= DBL_MAX && x >= -DBL_MAX;
+}
+

@@ -1,0 +1,34 @@
+type unsigned short wchar_t
+type unsigned char bool
+def false 0
+def true 1
+type void* HANDLE
+type int BOOL
+type unsigned char u8
+type unsigned int u32
+type unsigned __int32 uint32_t
+type __int8 int8_t
+type unsigned __int8 uint8_t
+type __int16 int16_t
+type unsigned __int16 uint16_t
+type __int32 int32_t
+type unsigned __int32 uint32_t
+type __int64 int64_t
+type unsigned __int64 uint64_t
+type uint8_t   u8
+type int16_t   i16
+type uint16_t  u16
+type int32_t   i32
+type uint32_t  u32
+type int64_t   i64
+type uint64_t  u64
+def VkResult int
+ifdef _WIN64
+    type unsigned __int64 uintptr_t;
+else
+    type unsigned int uintptr_t;
+endif
+. ARRAY_COUNT arr
+    sizeof(arr) / sizeof((arr)[0]))
+
+int _fltused = 0

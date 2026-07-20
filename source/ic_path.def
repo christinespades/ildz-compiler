@@ -1,0 +1,64 @@
+#define STRIP_PREFIX "C:\\Users\\Public\\Downloads\\000github\\ildzium-engine\\"
+#define RELEST_PATH(p) (string_in_string(p, STRIP_PREFIX) ? string_in_string(p, STRIP_PREFIX) + string_length(STRIP_PREFIX) : p)
+
+// sprintf
+unsigned int path_join(char *dest, unsigned int size, const char *dir, const char *file) {
+    unsigned int total_len = 0;
+    unsigned int written = 0;
+    char last_char = '\0';
+
+    // 1. Copy the directory path and normalize slashes to '\'
+    if (dir) {
+        while (*dir) {
+            char c = *dir;
+            if (c == '/') {
+                c = '\\'; // Normalize forward slashes to backslashes
+            }
+            
+            if (dest && written + 1 < size) {
+                dest[written] = c;
+                written++;
+            }
+            last_char = c;
+            total_len++;
+            dir++;
+        }
+    }
+
+    // 2. Add the backslash separator ONLY if 'dir' didn't already end in one
+    if (total_len > 0 && last_char != '\\') {
+        if (dest && written + 1 < size) {
+            dest[written] = '\\';
+            written++;
+        }
+        total_len++;
+    }
+
+    // 3. Copy the filename
+    if (file) {
+        while (*file) {
+            char c = *file;
+            if (c == '/') {
+                c = '\\'; // Keep it completely consistent
+            }
+
+            if (dest && written + 1 < size) {
+                dest[written] = c;
+                written++;
+            }
+            total_len++;
+            file++;
+        }
+    }
+
+    // 4. Always null-terminate if there is room in the buffer
+    if (dest && size > 0) {
+        if (written < size) {
+            dest[written] = '\0';
+        } else {
+            dest[size - 1] = '\0';
+        }
+    }
+
+    return total_len;
+}

@@ -1,0 +1,53 @@
+#define ENUM_MAKE(prefix, type) prefix##_##type,
+#define ENUM_STRING_MAKE(prefix, type) { prefix##_##type, #type },
+
+// The recursion core
+#define EMPTY()
+#define DEFER(id) id EMPTY()
+#define OBSTRUCT(...) __VA_ARGS__ DEFER(EMPTY)()
+#define EXPAND(...) __VA_ARGS__
+
+#define EVAL(...)  EVAL16(EVAL16(EVAL16(__VA_ARGS__)))
+#define EVAL16(...) EVAL8(EVAL8(__VA_ARGS__))
+#define EVAL8(...)  EVAL4(EVAL4(__VA_ARGS__))
+#define EVAL4(...)  EVAL2(EVAL2(__VA_ARGS__))
+#define EVAL2(...)  EVAL1(EVAL1(__VA_ARGS__))
+#define EVAL1(...)  __VA_ARGS__
+
+#define MAP_RECURSIVE(macro, prefix, x, ...) \
+    macro(prefix, x) \
+    __VA_OPT__(DEFER(MAP_RECURSIVE_INDIRECT)()(macro, prefix, __VA_ARGS__))
+
+#define MAP_RECURSIVE_INDIRECT() MAP_RECURSIVE
+
+#define MAKE_ENUM(prefix, enum_name, table_name, ...) \
+    typedef enum { \
+        EVAL(MAP_RECURSIVE(ENUM_MAKE, prefix, __VA_ARGS__)) \
+    } enum_name; \
+    \
+    static const EnumStringEntry table_name[] = { \
+        EVAL(MAP_RECURSIVE(ENUM_STRING_MAKE, prefix, __VA_ARGS__)) \
+    };
+
+typedef struct
+{
+    int value;
+    const char* name;
+} EnumStringEntry;
+
+typedef struct
+{
+    const EnumStringEntry* entries;
+    uint32_t count;
+} EnumDefinition;
+
+#define MAKE_ENUM_DEF(name)                    \
+    static EnumDefinition enum_##name = {             \
+        name##_names,                        \
+        sizeof(name##_names) / sizeof(name##_names[0]) \
+    };
+
+
+#define enum_to_string(type, value) \
+    type##_to_string(value)
+

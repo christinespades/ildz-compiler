@@ -1,0 +1,160 @@
+
+typedef struct
+{
+    const char* str;
+    int pos;
+} Scanner;
+
+//strcspn
+size_t scan_until_any(const char *s, const char *reject) {
+    size_t count = 0;
+
+    // Loop through each character of the source string
+    while (s[count] != '\0') {
+        // Check if current character s[count] is in the reject list
+        const char *r = reject;
+        while (*r != '\0') {
+            if (s[count] == *r) {
+                return count; // Found a matching reject character; return index/count
+            }
+            r++;
+        }
+        count++;
+    }
+
+    return count; // No reject characters found; return full length of s
+}
+
+//sscanf
+int scan_until_any_char(char** src, char* out, int max, const char* stop)
+{
+    while (is_space(**src))
+        (*src)++;
+
+    size_t n = scan_until_any(*src, stop);
+
+    if (n >= (size_t)max)
+        n = max - 1;
+
+    size_t i;
+    for (i = 0; i < n; i++)
+        out[i] = (*src)[i];
+
+    out[n] = '\0';
+    *src += n;
+
+    return n > 0;
+}
+
+int scan_float(Scanner* s, float* out)
+{
+    float value = 0.0f;
+    float div = 10.0f;
+
+    while (is_space(s->str[s->pos]))
+        s->pos++;
+
+    while (is_digit(s->str[s->pos]))
+    {
+        value *= 10.0f;
+        value += s->str[s->pos] - '0';
+        s->pos++;
+    }
+
+    if (s->str[s->pos] == '.')
+    {
+        s->pos++;
+
+        while (is_digit(s->str[s->pos]))
+        {
+            value += (s->str[s->pos] - '0') / div;
+            div *= 10.0f;
+            s->pos++;
+        }
+    }
+
+    *out = value;
+    return 1;
+}
+
+int scan_string(Scanner* s, char* out)
+{
+    while (is_space(s->str[s->pos]))
+        s->pos++;
+
+    while (s->str[s->pos] && !is_space(s->str[s->pos]))
+    {
+        *out++ = s->str[s->pos++];
+    }
+
+    *out = 0;
+    return 1;
+}
+
+int scan_int(char** src, int* value)
+{
+    while (**src == ' ' || **src == '\t')
+        (*src)++;
+
+    int result = 0;
+    int sign = 1;
+
+    if (**src == '-')
+    {
+        sign = -1;
+        (*src)++;
+    }
+
+    if (**src < '0' || **src > '9')
+        return 0;
+
+    while (**src >= '0' && **src <= '9')
+    {
+        result = result * 10 + (**src - '0');
+        (*src)++;
+    }
+
+    *value = result * sign;
+    return 1;
+}
+
+int scan_word(char** src, char* out, int max)
+{
+    while (**src == ' ' || **src == '\t')
+        (*src)++;
+
+    int i = 0;
+
+    while (**src &&
+           **src != ' ' &&
+           **src != '\t' &&
+           **src != '\n' &&
+           i < max - 1)
+    {
+        out[i++] = **src;
+        (*src)++;
+    }
+
+    out[i] = 0;
+    return i > 0;
+}
+
+int scan_until(char** src, char* out, int max, char end)
+{
+    int i = 0;
+
+    while (**src &&
+           **src != end &&
+           i < max - 1)
+    {
+        out[i++] = **src;
+        (*src)++;
+    }
+
+    out[i] = 0;
+
+    if (**src == end)
+        (*src)++;
+
+    return i > 0;
+}

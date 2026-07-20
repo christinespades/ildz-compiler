@@ -1,0 +1,150 @@
+
+typedef enum
+{
+#define X(name) name,
+#include "assignment_op.def"
+#undef X
+} AssignmentOP;
+const char* AssignmentOP_to_string(AssignmentOP val)
+{
+    switch (val)
+    {
+#define X(name) case name: return #name;
+#include "assignment_op.def"
+#undef X
+    default:
+        return "<unknown>";
+    }
+}
+
+static bool handle_assignment_expression(
+    unsigned long bytes_read, 
+    const char* buffer, 
+    Arena* arena, 
+    ParserCtx* ctx, 
+    StringView target_var, 
+    AssignmentOP op
+) {
+    // 1. Skip trailing spaces after assignment operator
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 2. Capture the remaining line content as RHS expression slice
+    StringView rhs_sv;
+    rhs_sv.data = &buffer[ctx->cursor];
+    rhs_sv.length = 0;
+
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        rhs_sv.length++;
+        ctx->cursor++;
+    }
+
+    if (rhs_sv.length == 0) {
+        logerrline("Syntax Error: Missing right-hand side expression after assignment operator.");
+        return false;
+    }
+
+    // 3. Create AST Target (LHS) Node
+    ASTNode* lhs_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    lhs_node->type = NODE_IDENTIFIER;
+    lhs_node->lexeme = target_var;
+    lhs_node->children = NULL;
+    lhs_node->next = NULL;
+
+    // 4. Create AST RHS Expression Node
+    ASTNode* rhs_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    rhs_node->children = NULL;
+    rhs_node->next = NULL;
+    rhs_node->lexeme = rhs_sv;
+
+    // Classify RHS node type
+    if (symbol_match(rhs_sv, true_sv) || symbol_match(rhs_sv, false_sv)) {
+        rhs_node->type = NODE_LITERAL_BOOLEAN;
+        loginfline("Parsed boolean literal on RHS: ", ansi_italic(rhs_sv), " on ");
+    } else if (rhs_sv.data[0] >= '0' && rhs_sv.data[0] <= '9') {
+        rhs_node->type = NODE_LITERAL_NUMBER;
+        loginfline("Parsed numeric literal on RHS: ", ansi_italic(rhs_sv), " on ");
+    } else if (rhs_sv.data[0] == '"') {
+        rhs_node->type = NODE_LITERAL_STRING;
+        loginfline("Parsed string literal on RHS: ", ansi_italic(rhs_sv), " on ");
+    } else {
+        rhs_node->type = NODE_IDENTIFIER;
+        loginfline("Parsed identifier/expression on RHS: ", ansi_italic(rhs_sv), " on ");
+
+        // Extract base symbol identifier for symbol existence check
+        u32 sym_len = 0;
+        while (sym_len < rhs_sv.length && rhs_sv.data[sym_len] != ' ' && rhs_sv.data[sym_len] != '(') {
+            sym_len++;
+        }
+
+        StringView sym_sv = { .data = rhs_sv.data, .length = sym_len };
+        if (!lookup_local_symbol(ctx, sym_sv) && !symbol_exists_globally(sym_sv)) {
+            register_unknown_symbol(rhs_node, "function_scope", sym_sv);
+        }
+    }
+
+    // 5. TYPE CHECKING & VALIDATION
+    // Extract RHS target symbol name if RHS is an identifier
+    u32 rhs_sym_len = 0;
+    while (rhs_sym_len < rhs_sv.length && rhs_sv.data[rhs_sym_len] != ' ' && rhs_sv.data[rhs_sym_len] != '(') {
+        rhs_sym_len++;
+    }
+    StringView rhs_sym_sv = { .data = rhs_sv.data, .length = rhs_sym_len };
+
+    StringView lhs_type = {0};
+    StringView rhs_type = {0};
+
+    bool lhs_has_type = resolve_symbol_type(ctx, target_var, NODE_IDENTIFIER, &lhs_type);
+    bool rhs_has_type = resolve_symbol_type(ctx, rhs_sym_sv, rhs_node->type, &rhs_type);
+
+    if (lhs_has_type) {
+        // Rule A: Arithmetic operators (plueq, mineq, muleq) require numeric types
+        if (op == OP_ADD_ASSIGN || op == OP_SUB_ASSIGN || op == OP_MUL_ASSIGN) {
+            if (!is_numeric_type(lhs_type)) {
+                logerrline("Type Error: Arithmetic operator on non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'. You cannot use ", enum_to_string(AssignmentOP, op), " on ", lhs_type, " variable named ", ansi_italic(target_var), " on ");
+                return false;
+            }
+        }
+
+        // Rule B: Type compatibility check between LHS and RHS
+        if (rhs_node->type == NODE_LITERAL_NUMBER) {
+            // Must be a numeric LHS variable
+            if (!is_numeric_type(lhs_type)) {
+                logerrline("Type Error: Cannot assign numeric literal '", rhs_sv, 
+                           "' to non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
+                return false;
+            }
+            // Validate float vs int and check numeric bounds
+            if (!validate_numeric_literal_assignment(target_var, lhs_type, rhs_sv)) {
+                return false;
+            }
+        } else if (rhs_has_type) {
+            // Identifiers, string/bool literals require exact type matching
+            if (!symbol_match(lhs_type, rhs_type)) {
+                logerrline("Type Error: Incompatible assignment! Cannot assign value of type '", rhs_type, "' to variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
+                return false;
+            }
+        }
+    }
+
+    // 6. Build Assignment Statement Node
+    ASTNode* assign_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    assign_node->type = NODE_ASSIGNMENT;
+    assign_node->lexeme = target_var;
+    
+    // Wire LHS -> RHS link
+    lhs_node->next = rhs_node;
+    assign_node->children = lhs_node;
+    assign_node->next = NULL;
+
+    // Attach to current statement stream
+    if (ctx->last_stmt) {
+        ctx->last_stmt->next = assign_node;
+    }
+    ctx->last_stmt = assign_node;
+
+    loginflinergb("Processed variable ", enum_to_string(AssignmentOP, op), " assignment with value ", rhs_sv, " for ", ansi_italic(target_var), " on ");
+    return true;
+}
+

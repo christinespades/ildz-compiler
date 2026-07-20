@@ -1,8 +1,0 @@
-|if you want a really long string you do just that
-
-astring = sadkjjkkjsakdjaskjdjkasjdddddddddddddddddddddddd ghudufghdfug dfhugdhghue eurug eurg ufdh g hudfhg dh fug fduhguh dfuhg hfdughu fduhg dfuhg dufh hs udfsudf usdfusd fhusd ufhsdu fusdhf hsduufh sduhf sudhfsf
-
-|but it has to be on one line, so the editor you use should wrap lines
-
-anotherstring = sdfsdf
-fgjkkdfg |this will read as clearing a variable, not as continuation of the string value. it will not work unless a var called "fgjkkdfg" exists.

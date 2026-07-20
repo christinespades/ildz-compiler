@@ -1,0 +1,78 @@
+// Function Signature Declaration Processing ('fn')
+static bool handle_function_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
+    loginfline("Processing function structure definition.");
+    ctx->cursor += 2; // Skip "fn"
+    
+    if (buffer[ctx->cursor] != ' ') {
+        logerrline("Syntax Error: Expected space separation after 'fn' keyword declaration.");
+        return false;
+    }
+    ctx->cursor++;
+
+    // Extract Return Type
+    StringView return_type;
+    if (!parse_type_token(bytes_read, buffer, ctx, &return_type)) {
+        logerrline("Syntax Error: Missing or invalid return type definition context.");
+        return false;
+    }
+
+    // Extract Function Name & create ASTNode
+    ASTNode* fn_node = parse_identifier_and_create_node(bytes_read, buffer, arena, ctx, NODE_FUNCTION, false);
+    if (!fn_node) return false;
+
+    if (!register_global_symbol(fn_node, root_prog, ctx, true)) {
+        return false;
+    }
+
+    // Set active function tracking fields in context
+    ctx->current_fn_node = fn_node;
+    ctx->current_fn_type = return_type;
+
+    ctx->local_symbol_count = 0; // Reset for new scope
+
+    // Argument Processing Loop
+    if (buffer[ctx->cursor] == ' ') {
+        ctx->cursor++;
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+            if (buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') break;
+
+            // 1. Scan Arg Type
+            StringView arg_type;
+            arg_type.data = &buffer[ctx->cursor];
+            arg_type.length = 0;
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ') {
+                arg_type.length++; ctx->cursor++;
+            }
+            
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+            // 2. Scan Arg Identifier
+            StringView arg_id;
+            arg_id.data = &buffer[ctx->cursor];
+            arg_id.length = 0;
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != ',' && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+                arg_id.length++; ctx->cursor++;
+            }
+
+            // Register into local symbols
+            if (arg_id.length > 0 && ctx->local_symbol_count < MAX_LOCAL_SYMBOLS) {
+                LocalSymbol* local = &ctx->local_symbols[ctx->local_symbol_count++];
+                local->name = arg_id.data;
+                local->length = arg_id.length;
+                local->kind = VAR_LOCAL_PARAM;
+            }
+
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+            if (buffer[ctx->cursor] == ',') ctx->cursor++;
+        }
+    }
+
+    ctx->in_function_scope = true;
+    ctx->total_paths = 1;
+    ctx->returning_paths = 0;
+
+    // Direct StringView logging!
+    loginfline("Handled header for ", return_type, " function ", ansi_italic(fn_node->lexeme), " taking ", ctx->local_symbol_count, " args on ");
+    return true;
+}

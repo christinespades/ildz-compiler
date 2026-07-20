@@ -1,0 +1,166 @@
+
+bool parse_ildz_loop(unsigned long bytes_read, char* buffer, Arena* arena, ASTNode* root_prog) {
+    ParserCtx ctx = {
+        .cursor = 0,
+        .in_function_scope = false,
+        .in_struct_scope = false,
+        .expecting_empty_line = false,
+        .total_paths = 0,
+        .returning_paths = 0,
+        .last_stmt = NULL
+    };
+
+    while (ctx.cursor < bytes_read) {
+        // Peek past any leading line spaces/tabs to identify line-starting comments
+        u32 comment_peek = ctx.cursor;
+        while (comment_peek < bytes_read && (buffer[comment_peek] == ' ' || buffer[comment_peek] == '\t')) {
+            comment_peek++;
+            if (ctx.in_function_scope == false && ctx.in_struct_scope == false) {
+                logerrline("Empty space or indents found outside of function and struct scope on");
+                return false;
+            }
+            loginflinev("Moving past empty space on ");
+        }
+        if (comment_peek < bytes_read && buffer[comment_peek] == '#') {
+            ctx.cursor = comment_peek;
+            if (!handle_comment_block(bytes_read, buffer, &ctx)) return false;
+            loginfline("Handled a comment block.");
+            continue;
+        }
+
+        // Line Breaks & Whitespace Bounds
+        if (buffer[ctx.cursor] == '\n' || buffer[ctx.cursor] == '\r') {
+            loginfline("About to handle a newline after");
+            if (!handle_newline(bytes_read, buffer, &ctx, false)) return false;
+            continue;
+        }
+
+        // Out-of-dent out of an active function scope block check
+        if (ctx.in_function_scope && buffer[ctx.cursor] != ' ' && buffer[ctx.cursor] != '\t') {
+            if (ctx.returning_paths < ctx.total_paths) {
+                logerrline("Function ", ansi_italic(ctx.last_stmt->lexeme), " must explicitly return along all execution paths.");
+                return false;
+            }
+            ctx.in_function_scope = false;
+            logerrline("ERROR: A single empty line is required immediately following a function definition block.");
+            return false;
+        }
+
+        // Out-of-dent check out of an active struct scope block check
+        if (ctx.in_struct_scope && buffer[ctx.cursor] != ' ' && buffer[ctx.cursor] != '\t') {
+            // De-indentation safely closes structural boundary context
+            ctx.in_struct_scope = false;
+            // Leave cursor intact to evaluate what keyword this out-of-dented line belongs to
+            loginfline("Struct declaration ended by line returning to zero indentation. Expecting an empty line.");
+            ctx.expecting_empty_line = true;
+        }
+
+        // Trailing structural verification 
+        if ((!ctx.in_function_scope || !ctx.in_struct_scope) && ctx.expecting_empty_line) {
+            logerrline("ERROR: A single empty line is required immediately following a function or struct definition block.");
+            return false;
+        }
+
+        // Processing spacing layout skip safely
+        if (!ctx.in_function_scope && !ctx.in_struct_scope && (buffer[ctx.cursor] == ' ' || buffer[ctx.cursor] == '\t')) {
+            ctx.cursor++;
+            loginfline("Moving through space in global scope.");
+            continue;
+        }
+
+        // Struct Declarations ('struct')
+        if (!ctx.in_function_scope && !ctx.in_struct_scope && str_match_keyword(buffer, ctx.cursor, bytes_read, "struct", 6)) {
+            if (!handle_struct_decl(bytes_read, buffer, arena, root_prog, &ctx)) return false;
+            loginfline("Handled first line of struct declaration. Expecting indented line with struct member next.");
+            continue;
+        }
+
+        // Function Declarations ('fn')
+        if (!ctx.in_function_scope && str_match_keyword(buffer, ctx.cursor, bytes_read, "fn", 2)) {
+            if (!handle_function_decl(bytes_read, buffer, arena, root_prog, &ctx)) return false;
+            continue;
+        }
+
+        // Indented Structural Code Block Trailing Evaluation
+        if (ctx.in_struct_scope) {
+            loginfline("Inside struct body scope. Current indentation level is ", ctx.current_indent, " and last statement was ", enum_to_string(ASTNodeType, ctx.last_stmt->type));
+            if (!handle_struct_body(bytes_read, buffer, arena, root_prog, &ctx)) return false;
+            continue;
+        }
+
+        // Indented Code Block Trailing Evaluation
+        if (ctx.in_function_scope) {
+            loginfline("Inside function body scope. Current indentation level is ", ctx.current_indent, " and last statement was ", enum_to_string(ASTNodeType, ctx.last_stmt->type));
+            if (!handle_function_body(bytes_read, buffer, arena, root_prog, &ctx)) return false;
+            continue;
+        }
+        else {
+            loginfline("About to handle a global variable declaration on");
+            if (!handle_global_var_decl(bytes_read, buffer, arena, root_prog, &ctx)) return false;
+            continue;
+        }
+        logerrline("Unknown syntax on");
+        return false;
+    }
+
+    // EOF Boundaries
+    if (ctx.in_function_scope && ctx.returning_paths < ctx.total_paths) {
+        logerr("Control Flow Error: File ended without returning a value along all execution paths.");
+        return false;
+    }
+
+    // File ended: cleanly resolve structural boundary closure
+    if (ctx.in_struct_scope) {
+        ctx.in_struct_scope = false;
+    }
+
+    return true;
+}
+
+bool parse_ildz(void* file_handle, const char* filename, ASTNode** out_ast_root, Arena* arena)
+{
+    *out_ast_root = NULL;
+
+    // Initialize tracking variables at file processing entry
+    g_cur_line_no = 1;
+    g_line[0] = '\0';
+    g_current_file = filename;
+
+    unsigned long file_size = GetFileSize(file_handle, NULL);
+    if (file_size == 0 || file_size == 0xFFFFFFFF) {
+        return true; 
+    }
+    
+    char* buffer = (char*)arena_alloc(arena, file_size + 1);
+    if (!buffer)
+    {
+        logerr("Failed to allocate parser arena memory.");
+        return false;
+    }
+
+    unsigned long bytes_read = 0;
+    if (!ReadFile(file_handle, buffer, file_size, &bytes_read, NULL)) {
+        logerr("Windows ReadFile operation failed.");
+        return false;
+    }
+    buffer[bytes_read] = '\0'; 
+
+    // Seed the logging container with line 1 text before parsing begins
+    update_logging_line_context(buffer, 0, bytes_read);
+
+    // Prepare structural AST Program Root
+    ASTNode* root_prog = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    root_prog->type = NODE_PROGRAM;
+    root_prog->children = NULL;
+    root_prog->next = NULL;
+    *out_ast_root = root_prog;
+
+    if (g_ast_root_count < MAX_COMPILATION_UNITS) {
+        g_ast_roots[g_ast_root_count++] = root_prog;
+    } else {
+        logerr("Exceeded maximum global compilation units tracking boundary.");
+        return false;
+    }
+ 
+    return parse_ildz_loop(bytes_read, buffer, arena, root_prog);
+}

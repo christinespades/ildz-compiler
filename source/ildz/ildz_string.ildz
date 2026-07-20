@@ -1,0 +1,96 @@
+.b isalnum str c
+    ret c in a..z, A..Z, 0..9
+
+.int string_compare cchar* a, b
+    as *a && (*a == *b)
+        a++
+        b++
+    ret (uchar)*a - (uchar)*b
+
+.char* string_find_first_occurrence cchar* str, int character
+    char c = (char)character
+    as *str != '\0'
+        if *str == c
+            ret (char*)str
+        str++
+    if c == '\0'
+        ret (char*)str;
+    ret NULL
+
+.char* string_find_last_occurrence cchar* str, int character
+    char* last_match = NULL
+    char c = (char)character;
+    as *str != '\0'
+        if *str == c
+            last_match = (char*)str
+        str++
+    if c == '\0'
+        ret (char*)str
+    ret last_match
+
+.char* string_concatenate char* dest, cchar* src
+    char* start = dest
+    as *dest != '\0'
+        dest++
+    as *src != '\0'
+        *dest = *src
+        dest++
+        src++
+    *dest = '\0'
+    ret start
+
+.char* string_concatenate_until char* dest, cchar* src, size_t count
+    char* start = dest
+    as (*dest != '\0'
+        dest++
+    as count > 0 && *src != '\0'
+        *dest = *src
+        dest++
+        src++
+        count--
+    *dest = '\0'
+    ret start
+
+.char* string_copy char* dest, cchar* src
+    char* start = dest
+    as ((*dest++ = *src++));
+    ret start
+
+.int string_copy_safe char* dest, uint dest_size, cchar* src
+    if !dest || dest_size == 0 || !src
+        ret 0
+    uint i = 0
+    as src[i] != '\0' && i < dest_size - 1
+        dest[i] = src[i]
+        i++
+    dest[i] = '\0'
+    if src[i] != '\0' && i == dest_size - 1
+        ret 0
+    ret 1
+
+.b string_equal cchar* a, b
+    as *a && *b
+        if *a != *b
+            ret false
+        a++
+        b++
+    ret *a == *b
+
+.char* string_in_string cchar* haystack, needle
+    if *needle == '\0'
+        ret (char*)haystack
+    as *haystack != '\0'
+        cchar* h = haystack
+        cchar* n = needle
+        as *h != '\0' && *n != '\0' && *h == *n
+            h++
+            n++
+        if *n == '\0'
+            ret (char*)haystack
+        haystack++
+    ret NULL
+
+.size_t string_length cchar* str
+    cchar* s = str
+    while (*s != '\0') s++
+    ret (size_t)(s - str)

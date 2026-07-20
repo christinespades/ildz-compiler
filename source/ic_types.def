@@ -1,0 +1,57 @@
+#define NULL ((void*)0)
+typedef unsigned short wchar_t;
+typedef unsigned char bool;
+#define false 0
+#define true 1
+typedef void* HANDLE;
+typedef int BOOL;
+typedef unsigned char u8; //BYTE
+typedef unsigned int u32; //DWORD
+typedef unsigned __int32 uint32_t;
+typedef __int8             int8_t;
+typedef unsigned __int8    uint8_t;
+typedef __int16            int16_t;
+typedef unsigned __int16   uint16_t;
+typedef __int32            int32_t;
+typedef unsigned __int32   uint32_t;
+typedef __int64            int64_t;
+typedef unsigned __int64   uint64_t;
+typedef uint8_t   u8;
+typedef int16_t   i16;
+typedef uint16_t  u16; //WCHAR, unsigned short
+typedef int32_t   i32;
+typedef uint32_t  u32;
+typedef int64_t   i64;
+typedef uint64_t  u64; // size_t
+typedef struct {
+    float x, y;
+} vec2;
+
+typedef struct {
+    float x, y, z;
+} vec3;
+
+typedef struct {
+    float x, y, z, w;
+} vec4;
+
+// 16-byte aligned vec3 to perfectly match GLSL std140 (prevents alignment bugs)
+typedef struct {
+    float x, y;
+    float _pad0, _pad1;
+} Vec2Std140;
+
+typedef struct {
+    float x, y, z;
+    float _pad;
+} Vec3Std140;
+
+typedef struct {
+    float x, y, z, w;
+} Vec4Std140;
+#define VkResult int
+#ifdef _WIN64
+    typedef unsigned __int64 uintptr_t;
+#else
+    typedef unsigned int uintptr_t;
+#endif

@@ -1,0 +1,32 @@
+
+// Handle While Loop ("as")
+static bool handle_function_body_while(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx, u32 parent_indent) {
+    loginfline("Match found for loop keyword: as (while loop).");
+    ctx->cursor += 2; // Skip "as"
+
+    // Parse loop condition if present on the same line, or ensure clean line end
+    if (!ensure_end_of_line(bytes_read, buffer, ctx)) {
+        return false;
+    }
+
+    ctx->while_nesting_level++;
+    
+    // Track that the NEXT line within this scope must be indented deeper than parent_indent
+    // (e.g., if parent was 4 spaces, next lines inside block must be > 4 spaces or exactly 1 tab/level up)
+    
+    ASTNode* while_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    while_node->type = NODE_WHILE;
+    while_node->lexeme.data = "as";
+    while_node->lexeme.length = 2;
+    while_node->children = NULL;
+    while_node->next = NULL;
+
+    if (!root_prog->children) {
+        root_prog->children = while_node;
+    } else {
+        ctx->last_stmt->next = while_node;
+    }
+    ctx->last_stmt = while_node;
+
+    return true;
+}

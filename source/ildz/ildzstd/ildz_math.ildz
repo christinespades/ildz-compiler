@@ -1,0 +1,5 @@
+fn f32 absf: f32 x
+    ret x lthan 0.0 ? -x : x
+
+fn f32 modf: f32 x, f32 y
+    ret x sub (x idiv y) mul y

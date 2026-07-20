@@ -1,0 +1,21 @@
+def NULL ((void*)0)
+def STD_OUTPUT_HANDLE ((unsigned long)-11)
+def STD_ERROR_HANDLE  ((unsigned long)-12)
+__declspec(dllimport) void* __stdcall GetStdHandle(u32 nStdHandle)
+def MAX_PATH 260
+def INVALID_HANDLE_VALUE ((void*)(long_ptr)-1)
+type struct _WIN32_FIND_DATAA
+    unsigned long dwFileAttributes
+    unsigned long ftCreationTime[2]
+    unsigned long ftLastAccessTime[2]
+    unsigned long ftLastWriteTime[2]
+    unsigned long nFileSizeHigh
+    unsigned long nFileSizeLow
+    unsigned long dwReserved0
+    unsigned long dwReserved1
+    char          cFileName[MAX_PATH]
+    char          cAlternateFileName[14]
+WIN32_FIND_DATAA
+__declspec(dllimport) void* __stdcall FindFirstFileA(const char* lpFileName, WIN32_FIND_DATAA* lpFindFileData);
+__declspec(dllimport) int   __stdcall FindNextFileA(void* hFindFile, WIN32_FIND_DATAA* lpFindFileData);
+__declspec(dllimport) int   __stdcall FindClose(void* hFindFile);

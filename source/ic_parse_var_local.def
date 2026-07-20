@@ -1,0 +1,66 @@
+
+// 1. Local Variable Declaration Handler
+static bool handle_local_var_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx, StringView type_sv) {
+    loginfline("Processing local variable declaration with type: ", type_sv, " on ");
+
+    // 1. Skip spaces after type token ("u8")
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 2. Parse variable name token directly (parse_identifier_token skips leading spaces and validates length)
+    StringView var_name;
+    if (!parse_identifier_token(bytes_read, buffer, ctx, &var_name, true)) {
+        logerrline("Failed to parse valid variable identifier after type ", type_sv);
+        return false;
+    }
+
+    // 3. Register into local symbols table
+    if (ctx->local_symbol_count < MAX_LOCAL_SYMBOLS) {
+        LocalSymbol* local = &ctx->local_symbols[ctx->local_symbol_count++];
+        local->name = var_name.data;
+        local->length = var_name.length;
+        local->type_sv.data = type_sv.data;     // Save type pointer
+        local->type_sv.length = type_sv.length; // Save type length
+        local->kind = VAR_LOCAL_VAR;
+    } else {
+        logerrline("Compiler Error: Local symbol table overflow max capacity.");
+        return false;
+    }
+
+    // 4. Allocate AST node for local declaration
+    ASTNode* var_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    var_node->type = NODE_VAR_DECL;
+    var_node->lexeme = var_name;
+    var_node->children = NULL;
+    var_node->next = NULL;
+
+    // 5. Attach to statement chain
+    if (!root_prog->children) {
+        root_prog->children = var_node;
+    } else {
+        ctx->last_stmt->next = var_node;
+    }
+    ctx->last_stmt = var_node;
+
+    // 6. Skip trailing spaces
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 7. Check optional assignment 'eq'
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "eq", 2)) {
+        ctx->cursor += 2; // skip "eq"
+        loginfline("Found assignment 'eq' initialization for local variable: ", var_name);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, var_name, OP_ASSIGN);
+    }
+
+    // 8. Validate line termination if no assignment operator was present
+    if (!ensure_end_of_line(bytes_read, buffer, ctx)) {
+        logerrline("Syntax Error: Unexpected tokens after variable declaration '", var_name, "'. Expected assignment operator 'eq' or end of line.");
+        return false;
+    }
+
+    loginfline("Processed local ", type_sv, " variable declaration ", ansi_italic(var_name), " without assignment on ");
+    return true;
+}

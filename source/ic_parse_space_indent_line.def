@@ -1,0 +1,126 @@
+
+
+#define INDENT_SIZE 4 // or 1 if counting pure tabs/levels
+
+static bool validate_indentation_step(u32 current_spaces, u32 parent_spaces) {
+    u32 expected_spaces = parent_spaces + INDENT_SIZE;
+    if (current_spaces != expected_spaces) {
+        logerrline("Syntax Error: Block body indentation mismatch. Expected ", expected_spaces, 
+                   " spaces (level ", expected_spaces / INDENT_SIZE, 
+                   "), but got ", current_spaces, " spaces on ");
+        return false;
+    }
+    return true;
+}
+
+static void update_logging_line_context(const char* buffer, u32 cursor, u32 bytes_read) {
+    u32 line_idx = 0;
+    
+    // Walk forward from the current cursor until we hit a newline structure or EOF
+    while ((cursor + line_idx) < bytes_read && 
+           buffer[cursor + line_idx] != '\n' && 
+           buffer[cursor + line_idx] != '\r' && 
+           line_idx < (sizeof(g_line) - 1)) 
+    {
+        g_line[line_idx] = buffer[cursor + line_idx];
+        line_idx++;
+    }
+    g_line[line_idx] = '\0'; // Clamp string terminator securely
+}
+
+static bool validate_block_indentation(unsigned long bytes_read, const char* buffer, ParserCtx* ctx, u32 parent_indent) {
+    // 1. Consume trailing spaces on the current line
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 2. Require line termination
+    if (ctx->cursor >= bytes_read || (buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r')) {
+        logerrline("Syntax Error: Control structure keyword must be immediately followed by a newline.");
+        return false;
+    }
+
+    // Advance past newline sequence (\r\n or \n)
+    if (buffer[ctx->cursor] == '\r') ctx->cursor++;
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] == '\n') ctx->cursor++;
+
+    // 3. Measure indentation depth of the upcoming line
+    u32 next_indent = 0;
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        next_indent++;
+        ctx->cursor++;
+    }
+
+    u32 expected_indent = parent_indent + 1;
+    if (next_indent != expected_indent) {
+        logerrline("Syntax Error: Block body indentation mismatch. Expected indentation level ", expected_indent, ", but got ", ctx->current_indent, " on ");
+        return false;
+    }
+
+    ctx->current_indent = next_indent;
+    return true;
+}
+
+
+// Helper to consume trailing whitespace and verify line ends cleanly
+static bool ensure_end_of_line(unsigned long bytes_read, const char* buffer, ParserCtx* ctx) {
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        logerrline("Syntax Error: Unexpected trailing tokens on line.");
+        return false;
+    }
+    return true;
+}
+
+
+// Helper to skip horizontal whitespace (spaces and tabs) on the current line
+static inline void skip_spaces(unsigned long bytes_read, const char* buffer, ParserCtx* ctx) {
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+}
+
+// --- Helper 1: Newline Tracking & Blank Line Validation ---
+static bool handle_newline(unsigned long bytes_read, const char* buffer, ParserCtx* ctx, bool in_comment) {
+    if (buffer[ctx->cursor] == '\r' && ctx->cursor + 1 < bytes_read && buffer[ctx->cursor + 1] == '\n') {
+        ctx->cursor++;
+    }
+    g_cur_line_no++;
+    ctx->cursor++;
+    update_logging_line_context(buffer, ctx->cursor, bytes_read);
+
+    // If we are merely tracking lines through a comment block, skip scope checks entirely
+    if (in_comment) {
+        return true;
+    }
+
+    // Lookahead trace to see if the rest of the line is blank
+    u32 trace = ctx->cursor;
+    while (trace < bytes_read && (buffer[trace] == ' ' || buffer[trace] == '\t')) trace++;
+    bool is_empty_line = (trace == bytes_read || buffer[trace] == '\n' || buffer[trace] == '\r');
+
+    if (ctx->in_function_scope) {
+        if (is_empty_line) {
+            if (ctx->returning_paths < ctx->total_paths) {
+                logerrline("ERROR: Function must explicitly return a value along all execution paths.");
+                return false;
+            }
+            ctx->in_function_scope = false;
+            ctx->expecting_empty_line = true;
+        }
+    } else if(ctx->in_struct_scope) {
+        if (is_empty_line) {
+            ctx->in_struct_scope = false;
+            ctx->expecting_empty_line = true;
+        }
+    } else if (ctx->expecting_empty_line) {
+        if (is_empty_line) {
+            logerrline("ERROR: Multiple consecutive empty lines are prohibited after a function or struct declaration.");
+            return false;
+        }
+        ctx->expecting_empty_line = false;
+    }
+    return true;
+}

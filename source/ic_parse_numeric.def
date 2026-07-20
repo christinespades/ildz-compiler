@@ -1,0 +1,345 @@
+
+static int is_alphanumeric(char c) {
+    return (c >= 'a' && c <= 'z') || 
+           (c >= 'A' && c <= 'Z') || 
+           (c >= '0' && c <= '9');
+}
+
+// Checks whether a type StringView is a numeric primitive (excluding pointers/arrays, str, bl)
+static bool is_numeric_type(StringView type_sv) {
+    static const char* numeric_types[] = {
+        "u8", "u16", "u32", "u64",
+        "i8", "i16", "i32", "i64",
+        "f32", "f64"
+    };
+
+    for (size_t i = 0; i < sizeof(numeric_types) / sizeof(numeric_types[0]); i++) {
+        StringView num_sv = { .data = numeric_types[i], .length = string_length(numeric_types[i]) };
+        if (symbol_match(type_sv, num_sv)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+typedef struct IntegerTypeInfo
+{
+    bool is_signed;
+    unsigned bits;
+    const char* name;
+} IntegerTypeInfo;
+
+static bool get_integer_type_info(StringView type, IntegerTypeInfo* info)
+{
+    if (symbol_match(type, (StringView){"i8", 2})) {
+        info->is_signed = true;
+        info->bits = 8;
+        info->name = "i8";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"i16", 3})) {
+        info->is_signed = true;
+        info->bits = 16;
+        info->name = "i16";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"i32", 3})) {
+        info->is_signed = true;
+        info->bits = 32;
+        info->name = "i32";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"i64", 3})) {
+        info->is_signed = true;
+        info->bits = 64;
+        info->name = "i64";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"u8", 2})) {
+        info->is_signed = false;
+        info->bits = 8;
+        info->name = "u8";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"u16", 3})) {
+        info->is_signed = false;
+        info->bits = 16;
+        info->name = "u16";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"u32", 3})) {
+        info->is_signed = false;
+        info->bits = 32;
+        info->name = "u32";
+        return true;
+    }
+
+    if (symbol_match(type, (StringView){"u64", 3})) {
+        info->is_signed = false;
+        info->bits = 64;
+        info->name = "u64";
+        return true;
+    }
+
+    return false;
+}
+
+
+static long long signed_min_for_bits(unsigned bits)
+{
+    if (bits == 64)
+        return (-9223372036854775807LL - 1LL);
+
+    return -(1LL << (bits - 1));
+}
+
+
+static long long signed_max_for_bits(unsigned bits)
+{
+    if (bits == 64)
+        return 9223372036854775807LL;
+
+    return (1LL << (bits - 1)) - 1;
+}
+
+
+static unsigned long long unsigned_max_for_bits(unsigned bits)
+{
+    if (bits == 64)
+        return 18446744073709551615ULL;
+
+    return (1ULL << bits) - 1;
+}
+
+static bool literal_is_float(StringView s)
+{
+    for (u32 i = 0; i < s.length; i++)
+    {
+        char c = s.data[i];
+        if (c == '.' || c == 'e' || c == 'E')
+            return true;
+    }
+    return false;
+}
+
+static bool validate_numeric_literal_assignment(
+    StringView target_var,
+    StringView lhs_type,
+    StringView rhs_literal)
+{
+    StringView f32_sv = { .data = "f32", .length = 3 };
+    StringView f64_sv = { .data = "f64", .length = 3 };
+
+    bool target_is_f32 = symbol_match(lhs_type, f32_sv);
+    bool target_is_f64 = symbol_match(lhs_type, f64_sv);
+    bool target_is_float = target_is_f32 || target_is_f64;
+
+    bool literal_is_fp = literal_is_float(rhs_literal);
+
+
+    // Create null-terminated literal buffer
+    char buf[128];
+    u32 len = rhs_literal.length < 127 ? rhs_literal.length : 127;
+
+    for (u32 i = 0; i < len; i++)
+        buf[i] = rhs_literal.data[i];
+
+    buf[len] = '\0';
+
+    if (target_is_float)
+    {
+        double value;
+
+        if (!string_to_f64(buf, &value))
+        {
+            logerrline(
+                "Invalid floating-point literal: '",
+                rhs_literal,
+                "'."
+            );
+            return false;
+        }
+
+        if (!f64_is_finite(value))
+        {
+            logerrline(
+                "Type Error: Floating-point literal '",
+                rhs_literal,
+                "' exceeds f64 range."
+            );
+            return false;
+        }
+
+
+        if (target_is_f32)
+        {
+            float f = (float)value;
+
+            if (!f32_is_finite(f))
+            {
+                logerrline(
+                    "Type Error: Floating-point literal '",
+                    rhs_literal,
+                    "' exceeds f32 range."
+                );
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+
+    /*
+        Integer destination
+        If the literal is floating point, only allow exact integers.
+    */
+    if (literal_is_fp)
+    {
+        char* end = NULL;
+        double value;
+
+        if (!string_to_f64(buf, &value))
+        {
+            logerrline("Invalid floating-point literal: '", rhs_literal, "'.");
+            return false;
+        }
+
+        if (value > (double)LLONG_MAX || value < (double)LLONG_MIN)
+        {
+            logerrline(
+                "Type Error: Floating-point literal '",
+                rhs_literal,
+                "' is outside integer range."
+            );
+            return false;
+        }
+
+        long long integer_value = (long long)value;
+
+        if (value != (double)integer_value)
+        {
+            logerrline(
+                "Type Error: Cannot assign non-integer floating-point literal '",
+                rhs_literal,
+                "' to integer variable ",
+                ansi_italic(target_var),
+                "."
+            );
+            return false;
+        }
+
+        i64_to_string(integer_value, buf, sizeof(buf));
+    }
+
+    IntegerTypeInfo type;
+    if (!get_integer_type_info(lhs_type, &type))
+        return true;
+    bool negative = len > 0 && buf[0] == '-';
+    long long sval = 0;
+    unsigned long long uval = 0;
+
+    if (negative)
+    {
+        if (!type.is_signed)
+        {
+            logerrline(
+                "Type Error: Cannot assign negative value '",
+                rhs_literal,
+                "' to unsigned type '",
+                type.name,
+                "'."
+            );
+            return false;
+        }
+
+        if (!string_to_i64(buf, &sval))
+        {
+            logerrline(
+                "Invalid signed integer literal: '",
+                rhs_literal,
+                "'."
+            );
+            return false;
+        }
+    }
+    else
+    {
+        if (!string_to_u64(buf, &uval))
+        {
+            logerrline(
+                "Invalid integer literal: '",
+                rhs_literal,
+                "'."
+            );
+            return false;
+        }
+    }
+
+
+    /*
+        Signed integer range
+    */
+    if (type.is_signed)
+    {
+        long long min = signed_min_for_bits(type.bits);
+        long long max = signed_max_for_bits(type.bits);
+
+        if (negative)
+        {
+            if (sval < min)
+            {
+                logerrline(
+                    "Type Error: Value '",
+                    rhs_literal,
+                    "' is out of range for type '",
+                    type.name,
+                    "'."
+                );
+                return false;
+            }
+        }
+        else
+        {
+            if (uval > (unsigned long long)max)
+            {
+                logerrline(
+                    "Type Error: Value '",
+                    rhs_literal,
+                    "' is out of range for type '",
+                    type.name,
+                    "'."
+                );
+                return false;
+            }
+        }
+    }
+
+    /*
+        Unsigned integer range
+    */
+    else
+    {
+        unsigned long long max = unsigned_max_for_bits(type.bits);
+
+        if (uval > max)
+        {
+            logerrline(
+                "Type Error: Value '",
+                rhs_literal,
+                "' is out of range for type '",
+                type.name,
+                "'."
+            );
+            return false;
+        }
+    }
+
+    return true;
+}

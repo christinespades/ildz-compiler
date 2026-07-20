@@ -1,0 +1,73 @@
+int _fltused = 0;
+typedef void* HANDLE;
+#define STD_OUTPUT_HANDLE ((unsigned long)-11)
+#define STD_ERROR_HANDLE  ((unsigned long)-12)
+#define GENERIC_READ             (0x80000000L)
+#define GENERIC_WRITE            (0x40000000L)
+#define FILE_SHARE_READ          (0x00000001)
+#define CREATE_ALWAYS            (2)
+#define OPEN_EXISTING            (3)
+#define FILE_ATTRIBUTE_NORMAL    (0x00000080)
+
+__declspec(dllimport) void* __stdcall GetStdHandle(unsigned long nStdHandle);
+
+#define INVALID_HANDLE_VALUE ((void*)(unsigned __int64)-1)
+typedef struct _WIN32_FIND_DATAA {
+    unsigned long dwFileAttributes;
+    unsigned long ftCreationTime[2];
+    unsigned long ftLastAccessTime[2];
+    unsigned long ftLastWriteTime[2];
+    unsigned long nFileSizeHigh;
+    unsigned long nFileSizeLow;
+    unsigned long dwReserved0;
+    unsigned long dwReserved1;
+    char          cFileName[MAX_PATH];
+    char          cAlternateFileName[14];
+} WIN32_FIND_DATAA;
+__declspec(dllimport) void* __stdcall FindFirstFileA(const char* lpFileName, WIN32_FIND_DATAA* lpFindFileData);
+__declspec(dllimport) int   __stdcall FindNextFileA(void* hFindFile, WIN32_FIND_DATAA* lpFindFileData);
+__declspec(dllimport) int   __stdcall FindClose(void* hFindFile);
+__declspec(dllimport) HANDLE __stdcall GetProcessHeap(void);
+
+__declspec(dllimport) void* __stdcall HeapAlloc(
+    HANDLE hHeap,
+    unsigned long dwFlags,
+    unsigned __int64 dwBytes
+);
+
+__declspec(dllimport) int __stdcall HeapFree(
+    HANDLE hHeap,
+    unsigned long dwFlags,
+    void* lpMem
+);
+
+__declspec(dllimport) int __stdcall ReadFile(void* hFile, void* lpBuffer, unsigned long nNumberOfBytesToRead, unsigned long* lpNumberOfBytesRead, void* lpOverlapped);
+__declspec(dllimport) unsigned long __stdcall GetFileSize(void* hFile, unsigned long* lpFileSizeHigh);
+
+typedef void* LPVOID;
+typedef const void* LPCVOID;
+typedef size_t SIZE_T;
+__declspec(dllimport) void*          __stdcall VirtualAlloc(void* lpAddress, size_t dwSize, unsigned long flAllocationType, unsigned long flProtect);
+__declspec(dllimport) int            __stdcall VirtualFree(void* lpAddress, size_t dwSize, unsigned long dwFreeType);
+__declspec(dllimport) int            __stdcall FlushInstructionCache(void* hProcess, const void* lpBaseAddress, size_t dwSize);
+__declspec(dllimport) void*          __stdcall GetCurrentProcess(void);
+__declspec(dllimport) __declspec(noreturn) void __stdcall ExitProcess(unsigned int uExitCode);
+
+typedef unsigned short WCHAR;
+typedef WCHAR* LPWSTR;
+typedef const WCHAR* LPCWSTR;
+
+__declspec(dllimport)
+LPWSTR __stdcall GetCommandLineW(void);
+
+__declspec(dllimport)
+int __stdcall WideCharToMultiByte(
+    unsigned int CodePage,
+    unsigned long dwFlags,
+    LPCWSTR lpWideCharStr,
+    int cchWideChar,
+    char* lpMultiByteStr,
+    int cbMultiByte,
+    const char* lpDefaultChar,
+    int* lpUsedDefaultChar
+);

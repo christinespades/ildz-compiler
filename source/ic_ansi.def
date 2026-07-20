@@ -1,0 +1,4 @@
+#define ANSI_GREEN "\033[0;32m"
+#define ANSI_RED   "\033[0;31m"
+#define ANSI_RESET "\033[0m"
+#define ANSI_RGB(r,g,b) "\x1b[38;2;" #r ";" #g ";" #b "m"

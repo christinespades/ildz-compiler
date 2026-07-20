@@ -1,0 +1,67 @@
+
+static bool handle_function_body(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
+    loginflinev("Starting to parse function body. Current indentation level is ", ctx->current_indent, " and last statement was ", enum_to_string(ASTNodeType, ctx->last_stmt->type));
+    // 1. Measure leading spaces/tabs for the CURRENT line
+    u32 line_indent = 0;
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        line_indent++;
+        ctx->cursor++;
+    }
+
+    // Skip blank lines or comments (#)
+    if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r' || buffer[ctx->cursor] == '#') {
+        return true;
+    }
+
+    ctx->current_indent = line_indent;
+
+    // 2. Dispatch keywords based on current line content
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "ret", 3)) {
+        if (!handle_function_body_return(bytes_read, buffer, arena, root_prog, ctx)) {
+            logerrline("Failed handling ret in function body on ");
+        }
+        return true;
+    }
+    else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "as", 2)) {
+        if (!handle_function_body_while(bytes_read, buffer, arena, root_prog, ctx, line_indent)) {
+            logerrline("Failed handling as in function body on ");
+        }
+        return true;
+    }
+    else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "if", 2)) {
+        if (!handle_function_body_if(bytes_read, buffer, arena, root_prog, ctx, line_indent)) {
+        logerrline("Failed handling if in function body on ");
+        }
+        return true;
+    }
+    else {
+        // Peek/Extract first token
+        unsigned long token_start_cursor = ctx->cursor;
+        StringView first_token;
+        first_token.data = &buffer[ctx->cursor];
+        first_token.length = 0;
+
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && 
+               buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+            first_token.length++;
+            ctx->cursor++;
+        }
+
+        if (first_token.length == 0) {
+            logerrline("Syntax Error: Empty statement line encountered.");
+            return false;
+        }
+        loginflinev("Extracted first token: ", first_token);
+
+        // Is the first token a recognized type definition?
+        if (is_known_type(first_token)) {
+            loginfline("Parsed known type ", first_token, " on ");
+            return handle_local_var_decl(bytes_read, buffer, arena, root_prog, ctx, first_token);
+        } else {
+            return handle_statement_expression(bytes_read, buffer, arena, root_prog, ctx, first_token);
+        }
+    }
+
+    logerrline("Unknown syntax. Failed handling function body.");
+    return false;
+}

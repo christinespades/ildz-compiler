@@ -1,0 +1,137 @@
+static bool handle_function_body_return(
+    unsigned long bytes_read, 
+    const char* buffer, 
+    Arena* arena, 
+    ASTNode* root_prog, 
+    ParserCtx* ctx
+) {
+    loginfline("Match found for keyword: ret.");
+
+    if (!ctx->in_function_scope || !ctx->current_fn_node) {
+        logerrline("Syntax Error: 'ret' statement used outside of a function declaration.");
+        return false;
+    }
+
+    StringView return_type_sv = ctx->current_fn_type;
+    StringView bl_sv = { .data = "bl", .length = 2 };
+    StringView v_sv  = { .data = "v",  .length = 1 };
+
+    bool is_bool_fn = symbol_match(return_type_sv, bl_sv);
+    bool is_void_fn = symbol_match(return_type_sv, v_sv);
+
+    ctx->cursor += 3; // Skip "ret"
+
+    // Skip spaces
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
+        ctx->cursor++;
+    }
+
+    bool is_end_of_line = (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r');
+
+    // 1. Validate Return Value against Void / Non-Void Functions
+    if (is_void_fn && !is_end_of_line) {
+        logerrline("Type Error: Void function '", ctx->current_fn_node->lexeme, 
+                   "' cannot return an explicit value or expression.");
+        return false;
+    }
+
+    if (!is_void_fn && is_end_of_line) {
+        logerrline("Type Error: Non-void function '", ctx->current_fn_node->lexeme, 
+                   "' of type '", return_type_sv, "' must return a value.");
+        return false;
+    }
+
+    // 2. Create AST Return Node
+    ASTNode* ret_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    ret_node->type = NODE_RETURN;
+    ret_node->lexeme = (StringView){ .data = "ret", .length = 3 };
+    ret_node->children = NULL;
+    ret_node->next = NULL;
+
+    // 3. Parse Return Value Expression
+    if (!is_end_of_line) {
+        StringView token_sv;
+        token_sv.data = &buffer[ctx->cursor];
+        token_sv.length = 0;
+
+        while (ctx->cursor < bytes_read && is_valid_id_char(buffer[ctx->cursor])) {
+            token_sv.length++;
+            ctx->cursor++;
+        }
+
+        if (token_sv.length == 0) {
+            logerrline("Syntax Error: Expected identifier or literal after 'ret'.");
+            return false;
+        }
+
+        StringView true_sv  = { .data = "true",  .length = 4 };
+        StringView false_sv = { .data = "false", .length = 5 };
+
+        if (is_bool_fn && (symbol_match(token_sv, true_sv) || symbol_match(token_sv, false_sv))) {
+            ASTNode* lit_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            lit_node->type = NODE_LITERAL_BOOLEAN;
+            lit_node->lexeme = token_sv;
+            ret_node->children = lit_node;
+            loginfline("Parsed boolean return literal: ", token_sv);
+        } else {
+            StringView var_type = {0};
+            bool found_locally = resolve_symbol_type(ctx, token_sv, NODE_IDENTIFIER, &var_type);
+
+            if (!found_locally && !symbol_exists_globally(token_sv)) {
+                logerrline("Compilation Error: Identifier '", token_sv, "' in return statement is unknown or out of scope.");
+                return false;
+            }
+
+            // Check if followed by "is in "
+            unsigned long saved_cursor = ctx->cursor;
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+            bool has_is_in = false;
+            if (str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2)) {
+                unsigned long test_cursor = ctx->cursor + 2;
+                if (test_cursor < bytes_read && buffer[test_cursor] == ' ') {
+                    while (test_cursor < bytes_read && buffer[test_cursor] == ' ') test_cursor++;
+                    if (str_match_keyword(buffer, test_cursor, bytes_read, "in", 2)) {
+                        test_cursor += 2;
+                        if (test_cursor < bytes_read && buffer[test_cursor] == ' ') {
+                            has_is_in = true;
+                            ctx->cursor = test_cursor; // Consume "is in "
+                        }
+                    }
+                }
+            }
+
+            // ONLY delegate to handle_range_expression if function returns bool AND "is in" is present
+            if (is_bool_fn && has_is_in) {
+                if (!handle_range_expression(bytes_read, buffer, arena, ctx, ret_node, token_sv)) {
+                    return false;
+                }
+            } else {
+                ctx->cursor = saved_cursor; // Restore position if not "is in"
+
+                if (found_locally && !symbol_match(return_type_sv, var_type)) {
+                    logerrline("Type Error: Incompatible return type! Function '", ctx->current_fn_node->lexeme, 
+                               "' expects return type '", return_type_sv, "', but returned variable '", 
+                               token_sv, "' is of type '", var_type, "'.");
+                    return false;
+                }
+
+                ASTNode* var_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+                var_node->type = NODE_IDENTIFIER;
+                var_node->lexeme = token_sv;
+                ret_node->children = var_node;
+            }
+        }
+    }
+
+    // 4. Attach Return Node to AST Chain
+    if (!root_prog->children) {
+        root_prog->children = ret_node;
+    } else if (ctx->last_stmt) {
+        ctx->last_stmt->next = ret_node;
+    }
+    ctx->last_stmt = ret_node;
+    ctx->returning_paths++;
+
+    return true;
+}

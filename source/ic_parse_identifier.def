@@ -1,0 +1,84 @@
+
+bool is_valid_identifier(const StringView* sv)
+{
+    if (!sv || sv->length < 3)
+    {
+        logerrline("Identifiers must be 3 characters or more. ", ansi_italic(*sv), " is only ", sv ? sv->length : 0);
+        return false;
+    }
+
+    for (u32 i = 0; i < sv->length; i++)
+    {
+        char c = sv->data[i];
+        if (!((c >= 'a' && c <= 'z') ||
+              (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') ||
+              c == '_'))
+        {
+            logerrline("Identifier must only contain alphanumeric characters and underscores. ", ansi_italic(*sv), " does not.");
+            return false;
+        }
+    }
+    return true;
+}
+
+
+// Extract, validate, and check uniqueness of an identifier returning a StringView
+static bool parse_identifier_token(unsigned long bytes_read, const char* buffer, ParserCtx* ctx, StringView* out_identifier, bool stop_at_eq) {
+// 1. Skip leading whitespace so data doesn't point to spaces
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 2. Set start pointer at the first non-whitespace character
+    out_identifier->data = &buffer[ctx->cursor];
+    out_identifier->length = 0;
+
+    // 3. Scan the identifier
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\t' && 
+           buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+
+        // Check if we hit the "eq" assignment keyword
+        if (stop_at_eq && (ctx->cursor + 1 < bytes_read)) {
+            if (buffer[ctx->cursor] == 'e' && buffer[ctx->cursor + 1] == 'q') {
+                if (ctx->cursor + 2 == bytes_read || 
+                    buffer[ctx->cursor + 2] == ' ' || 
+                    buffer[ctx->cursor + 2] == '\t' ||
+                    buffer[ctx->cursor + 2] == '\n' || 
+                    buffer[ctx->cursor + 2] == '\r') {
+                    break;
+                }
+            }
+        }
+
+        out_identifier->length++;
+        ctx->cursor++;
+    }
+
+    if (!is_valid_identifier(out_identifier)) {
+        return false;
+    }
+
+    if (symbol_exists_globally(*out_identifier)) {
+        logerrline("Compilation Error: Duplicate symbol declaration detected!");
+        return false;
+    }
+
+    return true;
+}
+
+
+static ASTNode* parse_identifier_and_create_node(unsigned long bytes_read, const char* buffer, Arena* arena, ParserCtx* ctx, ASTNodeType type, bool stop_at_eq) {
+    StringView name_sv;
+    if (!parse_identifier_token(bytes_read, buffer, ctx, &name_sv, stop_at_eq)) {
+        return NULL;
+    }
+
+    ASTNode* node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    node->type = type;
+    node->lexeme = name_sv;
+    node->children = NULL;
+    node->next = NULL;
+
+    return node;
+}

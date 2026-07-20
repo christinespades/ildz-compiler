@@ -1,0 +1,8 @@
+#this is a comment
+#comments always start with a # and they must occur at the start of the line
+fn bl isalnum str c
+    #ret c in a to z, A to Z, 0 to 9
+    ret false
+
+fn bl sdakjsd
+    ret true

@@ -1,0 +1,18 @@
+uint g_cur_line_no eq 0
+str g_line
+str g_project_root_path
+str g_cur_file
+
+fn str ansi_italic: str text
+    ret \x1b[3m, str, \x1b[23m
+
+fn loginfline: str text, _args
+    loginf: text, _args, " line ", g_cur_line_no, " in ", g_cur_file, ":\n", g_cur_line_no, " |", ansi_italic: g_line
+
+fn loginflinev: str text, _args
+    loginfv: text, _args, " line ", g_cur_line_no, " in ", g_cur_file, ":\n", g_cur_line_no, " |", ansi_italic: g_line
+fn loginflinergb: str text, _args
+    loginfrgb: text, _args, " line ", g_cur_line_no, " in ", g_cur_file, ":\n", g_cur_line_no, " |", ansi_italic: g_line
+
+fn logerrline: str text, _args
+    logerr: text, _args, " line ", g_cur_line_no, " in ", g_cur_file, ":\n", g_cur_line_no, " |", ansi_italic: g_line

@@ -1,0 +1,17 @@
+typedef struct
+{
+    char* memory;
+    size_t capacity;
+    size_t offset;
+} Arena;
+
+void* arena_alloc(Arena* arena, size_t size)
+{
+    if (arena->offset + size > arena->capacity)
+        return NULL;
+
+    void* ptr = arena->memory + arena->offset;
+    arena->offset += size;
+
+    return ptr;
+}

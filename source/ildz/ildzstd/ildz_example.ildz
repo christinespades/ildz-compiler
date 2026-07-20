@@ -1,0 +1,53 @@
+fn v update
+    #while loop
+    as
+        g_weather_state is lthan 45
+            if
+                g_weather_state is 1
+                    actor.val eq 38
+                    #this endif means we do NOT trigger actor.val eq 32
+                    endif
+                actor.val eq 32
+            if
+                g_weather_state is 132
+                    actor.val eq 38
+                g_weather_state is 32
+                    actor.val eq 32
+                    #return from the entire function now
+                    ret
+                g_weather_state is 13
+                    actor.val eq 324
+                    endif
+                actor.val eq 89
+                #continue/next iteration of the closest loop
+                nextit
+            if
+                g_weather_state is 1123
+                    actor.val eq 38
+                    endif
+                g_weather_state is 32
+                    actor.val eq 32
+                    if
+                        g_music_state is 32
+                            actor.val muleq 3
+                            endif
+                        actor.val plueq 5
+                        it
+                            g_weather_state gthan 30
+                                if
+                                    actor.val is 45
+                                        actor.val-
+                                        if
+                                            actor.val is 34
+                                                endas
+                                    actor.val mineq 2
+                                    nextit
+                    endas
+                g_weather_state is 13
+                    actor.val eq 324
+                    endif
+                actor.val eq 89
+        g_weather_state+
+    #more code
+    u32 local_val eq 632
+    local_val pluseq actor.val

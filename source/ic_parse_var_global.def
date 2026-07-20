@@ -1,0 +1,105 @@
+
+static bool handle_global_var_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
+    loginfline("Processing global variable declaration.");
+
+    // 1. Extract the base type and its suffix modifiers
+    StringView var_type;
+    if (!parse_type_token(bytes_read, buffer, ctx, &var_type)) {
+        logerrline("Syntax Error: Missing or invalid base type for global variable declaration.");
+        return false;
+    }
+
+    // Parse specific modifier flags out of the type token string
+    bool is_pointer = false;
+    bool is_array = false;
+    for (u32 i = 0; i < var_type.length; i++) {
+        if (var_type.data[i] == '.') {
+            if (str_match_keyword(var_type.data, i + 1, var_type.length, "ptr", 3)) is_pointer = true;
+            if (str_match_keyword(var_type.data, i + 1, var_type.length, "ar", 2)) is_array = true;
+        }
+    }
+
+    // 2. Extract Variable Identifier and create node
+    ASTNode* var_node = parse_identifier_and_create_node(bytes_read, buffer, arena, ctx, NODE_VAR_DECL, true);
+    if (!var_node) return false;
+
+    // Consume subsequent spaces to check if there is an assignment operator next
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
+        ctx->cursor++;
+    }
+
+    // --- Branch 1: Unassigned Declaration (e.g., "u8 memory") ---
+    if (ctx->cursor == bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
+        loginfline("Valueless global variable defined.");
+        return register_global_symbol(var_node, root_prog, ctx, false);
+    }
+
+    // --- Branch 2: Assignment Initialization (e.g., "u8 memory eq something") ---
+    if (ctx->cursor + 1 >= bytes_read || buffer[ctx->cursor] != 'e' || buffer[ctx->cursor + 1] != 'q') {
+        logerrline("Expected 'eq', but got unexpected characters following global variable identifier.");
+        return false;
+    }
+    ctx->cursor += 2; // Skip "eq"
+
+    // Consume trailing padding spaces
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
+        ctx->cursor++;
+    }
+
+    // Extract Expression StringView
+    StringView expr_sv;
+    expr_sv.data = &buffer[ctx->cursor];
+    expr_sv.length = 0;
+
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        expr_sv.length++;
+        ctx->cursor++;
+    }
+
+    if (expr_sv.length == 0) {
+        logerrline("Syntax Error: Missing expression initialization block after 'eq' assignment.");
+        return false;
+    }
+
+    ASTNode* init_expr = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    init_expr->lexeme = expr_sv;
+    init_expr->children = NULL;
+    init_expr->next = NULL;
+    var_node->children = init_expr;
+
+    // Advanced Evaluation Engine Framework Hook
+    if (expr_sv.data[0] >= '0' && expr_sv.data[0] <= '9') {
+        init_expr->type = NODE_LITERAL_NUMBER;
+        loginfline("Evaluating assigned raw value/math constant expression sequence.");
+        logerrline("TODO: Integrate recursive evaluate_constant_math_expression.");
+        return false;
+    } 
+    else if (expr_sv.data[0] == '"') {
+        init_expr->type = NODE_LITERAL_STRING;
+        loginfline("Evaluating assigned raw string content.");
+    }
+    else if (symbol_match(expr_sv, true_sv) || symbol_match(expr_sv, false_sv)) {
+        init_expr->type = NODE_LITERAL_BOOLEAN;
+        loginfline("Evaluating assigned boolean keyword flags.");
+    }
+    else {
+        init_expr->type = NODE_IDENTIFIER;
+        loginfline("Evaluating assignment target via symbol/function return lookup mapping.");
+        
+        u32 sym_id_len = 0;
+        while (sym_id_len < expr_sv.length && expr_sv.data[sym_id_len] != ' ' && expr_sv.data[sym_id_len] != '(') {
+            sym_id_len++;
+        }
+
+        StringView sym_sv = { .data = expr_sv.data, .length = sym_id_len };
+
+        if (!symbol_exists_globally(sym_sv)) {
+            logerrline("Compilation Error: Assigned identifier or functional expression sequence is unknown or out of scope.");
+            return false;
+        }
+        logerrline("TODO: Perform deep cross-check compatibility rules.");
+        return false;
+    }
+    logerrline("TODO");
+    return false;
+}

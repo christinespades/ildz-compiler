@@ -1,0 +1,91 @@
+ar.u8 IROpcode
+    IR_OP_IMM
+    IR_OP_ADD
+    IR_OP_SUB
+    IR_OP_MUL
+    IR_OP_DIV
+    IR_OP_ASSIGN
+    IR_OP_LOAD
+    IR_OP_STORE
+    IR_OP_LABEL
+    IR_OP_JMP
+    IR_OP_JMP_IF_ZERO
+    IR_OP_RETURN
+
+ar.u8 IRKind
+    OPERAND_NONE
+    OPERAND_VREG
+    OPERAND_INT
+
+struct IROperand
+    IRKind kind
+    union
+        u32 vreg
+        i64 imm_int
+
+struct IRInstruction
+    IROpcode op
+    u32 dest_vreg
+    IROperand src1
+    IROperand src2
+
+struct IRProgram
+    ptr.IRInstruction instructions
+    u32 count
+    u32 capacity
+    u32 next_vreg_id
+    u32 next_label_id
+
+fn v ir_init: ptr.IRProgram prog, ptr.Arena arena
+    prog.capacity eq 1024
+    prog.count eq 0
+    prog.next_vreg_id eq 0
+    prog.next_label_id eq 0
+    prog.instructions eq arena_alloc: arena, prog.capacity mul sizeof.IRInstruction
+
+fn u32 ir_new_vreg: ptr.IRProgram prog
+    ret prog.next_vreg_id+
+
+fn u32 ir_new_label: ptr.IRProgram prog
+    ret prog.next_label_id+
+
+fn v ir_emit: ptr.IRProgram prog, ptr.Arena arena, IRInstruction inst
+    if
+        prog.count geqthan prog.capacity
+            u32 old_capacity eq prog.capacity
+            prog.capacity muleq 2
+            ptr.IRInstruction new_insts eq arena_alloc: arena, prog.capacity mul sizeof.IRInstruction
+            u32 i eq 0
+            as
+                i lthan old_capacity
+                    i in new_insts eq i in prog.instructions
+                    i+
+            prog.instructions eq new_insts
+    prog.count+ in prog.instructions eq inst
+
+fn u32 ir_emit_imm: ptr.IRProgram prog, ptr.Arena arena, i64 literal
+    u32 dest eq ir_new_vreg: prog
+    IRInstruction inst
+        op eq IR_OP_IMM
+        dest_vreg eq dest
+        src1
+            kind eq OPERAND_INT
+            imm_int eq literal
+        src2
+            kind eq OPERAND_NONE
+    ir_emit: prog, arena, inst
+    ret dest
+
+fn u32 ir_emit_binop: ptr.IRProgram prog, ptr.Arena arena, IROpcode op, u32 src1_vreg, u32 src2_vreg
+    u32 dest eq ir_new_vreg: prog
+    IRInstruction inst eq
+        op eq op
+        dest_vreg eq dest
+        src1
+            kind eq OPERAND_VREG
+            vreg eq src1_vreg
+        src2
+            kind eq OPERAND_VREG
+            vreg eq src2_vreg
+    ir_emit: prog, arena, inst
+    ret dest

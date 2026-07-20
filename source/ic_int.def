@@ -1,0 +1,75 @@
+
+#define INT8_MIN    (-128)
+#define INT8_MAX    127
+
+#define INT16_MIN   (-32768)
+#define INT16_MAX   32767
+
+#define INT32_MIN   (-2147483647 - 1)
+#define INT32_MAX   2147483647
+
+#define INT64_MIN   (-9223372036854775807LL - 1LL)
+#define INT64_MAX   9223372036854775807LL
+
+#define UINT8_MAX   255U
+#define UINT16_MAX  65535U
+#define UINT32_MAX  4294967295U
+#define UINT64_MAX  18446744073709551615ULL
+
+#define LLONG_MIN   INT64_MIN
+#define LLONG_MAX   INT64_MAX
+#define ULLONG_MAX  UINT64_MAX
+
+static u32 i64_to_string(long long value, char* out, u32 capacity)
+{
+    if (capacity == 0)
+        return 0;
+
+    u32 pos = 0;
+
+    bool negative = value < 0;
+
+    unsigned long long magnitude;
+
+    if (negative)
+    {
+        // Handle LLONG_MIN safely
+        magnitude = (unsigned long long)(-(value + 1)) + 1;
+    }
+    else
+    {
+        magnitude = (unsigned long long)value;
+    }
+
+    char temp[32];
+    u32 count = 0;
+
+    do
+    {
+        temp[count++] = '0' + (magnitude % 10);
+        magnitude /= 10;
+    }
+    while (magnitude > 0);
+
+
+    if (negative)
+    {
+        if (pos + 1 >= capacity)
+            return 0;
+
+        out[pos++] = '-';
+    }
+
+
+    while (count > 0)
+    {
+        if (pos + 1 >= capacity)
+            return 0;
+
+        out[pos++] = temp[--count];
+    }
+
+    out[pos] = '\0';
+
+    return pos;
+}

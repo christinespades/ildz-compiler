@@ -1,0 +1,58 @@
+
+#define TYPE_MAP \
+    X("",   "void")   \
+    X("i",  "int")    \
+    X("b",  "bool")   \
+    X("f",  "float")  \
+    X("d",  "double") \
+    X("s",  "char*")
+
+const char* resolve_type(const char* short_type)
+{
+    #define X(short_name, full_name) \
+        if (string_equal(short_type, short_name)) return full_name;
+    TYPE_MAP
+    #undef X
+    return NULL;
+}
+
+// Helper to extract a type token. Standardizes scanning until whitespace or newlines.
+static bool parse_type_token(unsigned long bytes_read, const char* buffer, ParserCtx* ctx, StringView* out_type) {
+    out_type->data = &buffer[ctx->cursor];
+    out_type->length = 0;
+
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        out_type->length++;
+        ctx->cursor++;
+    }
+
+    if (out_type->length == 0 || buffer[ctx->cursor] != ' ') {
+        return false;
+    }
+
+    ctx->cursor++; // Skip space
+    return true;
+}
+
+// Checks whether a StringView matches built-in primitive types or type patterns
+static bool is_known_type(StringView type_sv) {
+    static const char* builtins[] = {
+        "v", "bl", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "str"
+    };
+    
+    // Check base name before any suffix modifiers (e.g. "bl" in "bl.ptr")
+    u32 base_len = 0;
+    while (base_len < type_sv.length && type_sv.data[base_len] != '.') {
+        base_len++;
+    }
+
+    StringView base_sv = { .data = type_sv.data, .length = base_len };
+
+    for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+        StringView builtin_sv = { .data = builtins[i], .length = string_length(builtins[i]) };
+        if (symbol_match(base_sv, builtin_sv)) {
+            return true;
+        }
+    }
+    return false;
+}

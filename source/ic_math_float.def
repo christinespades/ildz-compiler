@@ -1,0 +1,10 @@
+
+static float ildz_absf(float x)
+{
+    return x < 0.0f ? -x : x;
+}
+
+static float ildz_modf(float x, float y)
+{
+    return x - (int)(x / y) * y;
+}

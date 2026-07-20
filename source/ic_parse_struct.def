@@ -1,0 +1,143 @@
+
+static bool handle_struct_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
+    loginfline("Parsing struct declaration");
+    ctx->cursor += 6; // Move past "struct"
+
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ') {
+        logerrline("Syntax Error: Missing expected space separation following 'struct' keyword.");
+        return false;
+    }
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+    // 1. Parse the structure identifier name
+    StringView struct_name = {
+        .data = &buffer[ctx->cursor],
+        .length = 0
+    };
+    while (ctx->cursor < bytes_read && is_valid_id_char(buffer[ctx->cursor])) {
+        struct_name.length++;
+        ctx->cursor++;
+    }
+
+    if (!is_valid_identifier(&struct_name)) {
+        logerrline("Invalid identifier for the struct name.");
+        return false;
+    }
+
+    // Trim trailing blank padding spaces before newline
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        logerrline("Extraneous tokens detected after structure name declaration.");
+        return false;
+    }
+
+    // 2. Allocate AST Node Block
+    ASTNode* struct_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    struct_node->type = NODE_STRUCT_DECL;
+    struct_node->lexeme.data = struct_name.data;
+    struct_node->lexeme.length = struct_name.length;
+    struct_node->children = NULL;
+    struct_node->next = NULL;
+
+    // Append to program root statement sequence chain
+    if (!root_prog->children) {
+        root_prog->children = struct_node;
+    } else {
+        ctx->last_stmt->next = struct_node;
+    }
+    ctx->last_stmt = struct_node;
+
+    // Switch context into indented structural body compilation state
+    ctx->in_struct_scope = true;
+    return true;
+}
+
+static bool handle_struct_body(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
+    loginfline("Handling struct body.");
+    // Enforce indentation constraint (demanding a tab)
+    if (buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\t') {
+        logerrline("Struct member declarations must be indented.");
+        return false;
+    }
+
+    // Skip the indentation padding spaces
+    while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
+        ctx->cursor++;
+    }
+
+    // 1. Scan Type Keyword (e.g., "u8.ptr" or "u64")
+    const char* type_start = &buffer[ctx->cursor];
+    u32 type_len = 0;
+    while (ctx->cursor < bytes_read && (is_valid_id_char(buffer[ctx->cursor]) || buffer[ctx->cursor] == '.')) {
+        type_len++;
+        ctx->cursor++;
+    }
+
+    // Simple keyword matching check against our specified subset primitives
+    bool valid_type = false;
+    if (string_equal_len(type_start, type_len, "u8.ptr", 6) ||
+        string_equal_len(type_start, type_len, "u64", 3)) {
+        valid_type = true;
+    }
+
+    if (!valid_type) {
+        logerrline("Unknown or unhandled struct type.");
+        return false;
+    }
+
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ') {
+        logerrline("Missing expected space separation following member type declaration.");
+        return false;
+    }
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+    // 2. Scan Member Name Identifier (e.g., "memory")
+    StringView member_name = {
+        .data = &buffer[ctx->cursor],
+        .length = 0
+    };
+    while (ctx->cursor < bytes_read && is_valid_id_char(buffer[ctx->cursor])) {
+        member_name.length++;
+        ctx->cursor++;
+    }
+
+    if (member_name.length == 0 || !is_valid_identifier(&member_name)) {
+        logerrline("Invalid identifier for the struct member name.");
+        return false;
+    }
+
+    // Skip blank layout padding before structural end of line
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        logerrline("Syntax Error: Extraneous trailing configuration values found after member identifier.");
+        return false;
+    }
+
+    // 3. Allocate Member Node Block
+    ASTNode* member_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    member_node->type = NODE_STRUCT_MEMBER;
+    member_node->lexeme.data = member_name.data;
+    member_node->lexeme.length = member_name.length;
+    // We can store a pointer to the type slice within the tree definition variables if needed
+    member_node->children = NULL; 
+    member_node->next = NULL;
+
+    // Append child node to the parent Struct Declaration sequence chain
+    ASTNode* current_struct = ctx->last_stmt;
+    u32 member_count = 1;
+    if (!current_struct->children) {
+        current_struct->children = member_node;
+    } else {
+        ASTNode* child = current_struct->children;
+        while (child->next) {
+            child = child->next;
+            member_count++;
+        }
+        child->next = member_node;
+        member_count++;
+    }
+    loginfline("Parsed struct member ", member_count, " (",member_name,") in struct (",current_struct->lexeme,") on");
+    return true;
+}

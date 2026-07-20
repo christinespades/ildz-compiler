@@ -1,0 +1,177 @@
+
+// here we should read from the binary mapped data cache thing. we call this whenever a new symbol name is parsed, and we lookup with a hashtable. 
+// so
+// if (symbol_exists_globally(hash, name))  error_duplicate();
+//compiler_cache.bin with mmap() gives us SymbolTable*
+// Then startup becomes:
+// load 200MB stdlib cache
+// pointer already points to symbols
+// begin parsing
+
+bool symbol_exists_globally(StringView name_sv) {
+    for (u32 i = 0; i < g_symbol_count; i++) {
+        Symbol* sym = &g_symbol_registry[i];
+
+        if (sym->target_sv.length == name_sv.length &&
+            memory_equal(sym->target_sv.data, name_sv.data, name_sv.length)) 
+        {
+            loginfline("Symbol ", ansi_italic(name_sv), " matched with ", ansi_italic(sym->target_sv));
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline bool symbol_match(StringView s1, StringView s2) {
+    if (s1.length != s2.length) return false;
+    return memory_equal(s1.data, s2.data, s1.length);
+}
+
+
+// Helper to look up an identifier locally
+static bool lookup_local_symbol(ParserCtx* ctx, StringView name) {
+    for (u32 i = 0; i < ctx->local_symbol_count; i++) {
+        StringView local_sv = { 
+            .data = ctx->local_symbols[i].name, 
+            .length = ctx->local_symbols[i].length 
+        };
+        if (symbol_match(local_sv, name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+// Retrieves the type StringView for a local variable, global symbol, or literal
+static bool resolve_symbol_type(ParserCtx* ctx, StringView symbol_sv, ASTNodeType rhs_type, StringView* out_type) {
+    // 1. Literal values return implicit types
+    if (rhs_type == NODE_LITERAL_BOOLEAN) {
+        *out_type = (StringView){ .data = "bl", .length = 2 };
+        return true;
+    }
+    if (rhs_type == NODE_LITERAL_STRING) {
+        *out_type = (StringView){ .data = "str", .length = 3 };
+        return true;
+    }
+    if (rhs_type == NODE_LITERAL_NUMBER) {
+        // Leave empty so type checker knows it's a raw numeric literal
+        *out_type = (StringView){ .data = NULL, .length = 0 };
+        return true;
+    }
+
+    // 2. Local variable lookup
+    for (u32 i = 0; i < ctx->local_symbol_count; i++) {
+        StringView local_name = { 
+            .data = ctx->local_symbols[i].name, 
+            .length = ctx->local_symbols[i].length 
+        };
+        if (symbol_match(local_name, symbol_sv)) {
+            *out_type = (StringView){ 
+                .data = ctx->local_symbols[i].type_sv.data, 
+                .length = ctx->local_symbols[i].type_sv.length 
+            };
+            return true;
+        }
+    }
+
+    // 3. Global symbol lookup (fallback/forward decl)
+    Symbol* sym = symbol_exists_globally(symbol_sv);
+    if (sym && sym->type_sv.data) {
+        *out_type = (StringView){ .data = sym->type_sv.data, .length = sym->type_sv.length };
+        return true;
+    }
+
+    return false;
+}
+
+
+// Call this inside parse_ildz when a symbol type/identifier is unknown and thus cannot be immediately resolved
+// Basic atomic increment or simple lock if using real threads later. 
+// For a simple synchronous loop, a direct increment works perfectly:
+void register_unknown_symbol(ASTNode* node, const char* scope, StringView target_sv) {
+    if (g_unknown_symbol_count < MAX_UNKNOWN_SYMBOLS) {
+        Symbol* sym = &g_unknown_symbol_registry[g_unknown_symbol_count++];
+        sym->node = node;
+        sym->scope_name = scope;
+        sym->target_sv = target_sv;
+        sym->is_known = false;
+    } else {
+        logerr("Exceeded maximum unknown symbol capacity.");
+    }
+    loginfline("Registered unknown symbol ", ansi_italic(node->lexeme), " on ");
+}
+
+
+static bool register_global_symbol(ASTNode* node, ASTNode* root_prog, ParserCtx* ctx, bool is_function) {
+    // 1. Link into the AST Program Linkage Chain
+    if (!root_prog->children) {
+        root_prog->children = node;
+    } else {
+        ctx->last_stmt->next = node;
+    }
+    ctx->last_stmt = node;
+
+    // 2. Register into Global Symbol Registry
+    if (g_symbol_count < MAX_GLOBAL_SYMBOLS) {
+        Symbol* sym = &g_symbol_registry[g_symbol_count++];
+        sym->node = node;
+        sym->scope_name = "global";
+        // Directly pull the token window details out of the node's lexeme!
+        sym->target_sv = node->lexeme;
+        sym->is_known = true;
+        sym->is_function_decl = is_function;
+        sym->ref_count = 0;
+        return true;
+    } 
+    
+    logerrline("Exceeded maximum global symbols boundary limits.");
+    return false;
+}
+
+
+bool resolve_unknown_symbols() // unknown variable names, function calls etc..
+{
+    u32 resolved_count = 0;
+    for (u32 i = 0; i < g_unknown_symbol_count; i++)
+    {
+        Symbol* sym = &g_unknown_symbol_registry[i];
+        ASTNode* defining_source_node = NULL;
+        
+        // Check if the symbol can be known now that all files are loaded
+        if (symbol_exists_globally(sym->target_sv))
+        {
+            // Update your AST IR state with the newly found type or identifier context
+            // sym->node->as.type_link = defining_source_node; 
+            sym->is_known = true;
+            resolved_count++;
+        }
+        else
+        {
+            // Throw explicit contextual tracking data
+            // Print out the target text block slice accurately since it isn't null-terminated
+            log_write_string("  Target identifier literal: ");
+            for(u32 c = 0; c < sym->target_sv.length; c++) {
+                log_putc(sym->target_sv.data[c]);
+            }
+            logerrline("Compilation Error: Unknown identifier or type reference! Location Context Scope: ", sym->scope_name);
+            return false;
+        }
+    }
+    loginfline("Resolved all ", resolved_count, " previously unknown symbols in the final pass.");
+    return true;
+}
+
+// Helper to increment reference metrics directly inside your symbol registry
+static void increment_symbol_reference(StringView target_sv) {
+    for (u32 i = 0; i < g_symbol_count; i++) {
+        if (g_symbol_registry[i].is_function_decl &&
+            g_symbol_registry[i].target_sv.length == target_sv.length &&
+            memory_compare(g_symbol_registry[i].target_sv.data, target_sv.data, target_sv.length) == 0) 
+        {
+            g_symbol_registry[i].ref_count++;
+            return;
+        }
+    }
+}
+

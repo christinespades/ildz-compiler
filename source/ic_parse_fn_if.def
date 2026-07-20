@@ -1,0 +1,29 @@
+
+// Handle Conditional Statements ("if")
+static bool handle_function_body_if(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx, u32 parent_indent) {
+    loginfline("Match found for conditional keyword: if.");
+    ctx->cursor += 2; // Skip "if"
+
+    // Only verify that the remainder of the 'if' line is clean/empty
+    if (!ensure_end_of_line(bytes_read, buffer, ctx)) {
+        return false;
+    }
+
+    ctx->if_nesting_level++;
+
+    ASTNode* if_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    if_node->type = NODE_IF;
+    if_node->lexeme.data = "if";
+    if_node->lexeme.length = 2;
+    if_node->children = NULL;
+    if_node->next = NULL;
+
+    if (!root_prog->children) {
+        root_prog->children = if_node;
+    } else {
+        ctx->last_stmt->next = if_node;
+    }
+    ctx->last_stmt = if_node;
+
+    return true;
+}

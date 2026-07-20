@@ -1,0 +1,56 @@
+fn i32 memory_compare: ptr.u8 ptr1, ptr.u8 ptr2, u32 bytes_count
+    u32 i eq 0
+    as
+        i lthan bytes_count
+            u8 b1 eq i in ptr1
+            u8 b2 eq i in ptr2
+            if
+                b1 isnt b2
+                    if
+                        b1 lthan b2
+                            ret -1
+                        ret 1
+            i+
+    ret 0
+
+fn v memory_copy: ptr.T dst, ptr.T src, u64 size
+    ptr.T d eq dst
+    ptr.T s eq src
+    as
+        size gthan 0
+            ref.d eq ref.s
+            d+
+            s+
+            size-
+
+fn bl memory_equal: ptr.T ptr1, ptr.T ptr2, uint bytes_count
+    ptr.T b1 eq ptr1
+    ptr.T b2 eq ptr2
+    uint i eq 0
+    as
+        i lthan bytes_count
+            if i in b1 isnt i in b2
+                ret false
+            i+
+    ret true
+
+fn ptr.T memory_move: ptr.T dest, ptr.T src, uint count
+    if
+        dest is 0 or src is 0 or count is 0
+            ret dest
+    ptr.u8 d eq dest
+    ptr.s eq src
+    uint i eq 0
+    if
+        d lthan s
+            as
+                i lthan count
+                    i in d eq i in s 
+                i+
+            endif
+        d gthan s
+            as
+                i gthan count
+                    i-1 in d eq i-1 in s
+                i-
+    ret dest

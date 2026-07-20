@@ -1,0 +1,152 @@
+
+//fflush
+int ildz_file_flush(void* file_handle) {
+    // FlushFileBuffers returns non-zero on success
+    if (FlushFileBuffers(file_handle)) {
+        return 0; // Success (matches standard fflush return)
+    }
+    return -1; // Failure (EOF equivalent)
+}
+
+bool ildz_file_get_string(char* buffer, u32 buffer_size, void* file_handle)
+{
+    if (!buffer) {
+        logerr("ildz_file_get_string: Dest buffer is NULL.");
+        return false;
+    }
+    if (buffer_size == 0) {
+        logerr("ildz_file_get_string: buffer_size is 0.");
+        return false;
+    }
+    if (file_handle == INVALID_HANDLE_VALUE) {
+        logerr("ildz_file_get_string: Invalid file handle provided.");
+        return false;
+    }
+
+    u32 bytes_read = 0;
+    u32 total_written = 0;
+    char c = '\0';
+
+    // Leave room for the null-terminator
+    while (total_written < buffer_size - 1)
+    {
+        // Read 1 byte at a time
+        if (!ReadFile(file_handle, &c, 1, &bytes_read, NULL))
+        {
+            logerr("ildz_file_get_string: Windows ReadFile failed with error code: ", GetLastError());
+            break;
+        }
+        if (bytes_read == 0) break;
+
+        buffer[total_written++] = c;
+        if (c == '\n') break;
+    }
+
+    // Null-terminate the string
+    buffer[total_written] = '\0';
+
+    // Check if there was still more data on this line that didn't fit
+    if (total_written == buffer_size - 1 && c != '\n' && c != '\0')
+    {
+        loginf("ildz_file_get_string: Line exceeded buffer capacity (", buffer_size, " bytes). Truncating line remaining.");
+    }
+
+    // Return true only if we actually read bytes into the buffer
+    return total_written > 0;
+}
+
+//fseek
+int ildz_file_seek(void* file_handle, long offset) {
+    // FILE_CURRENT matches SEEK_CUR under the hood in Win32
+    unsigned long result = SetFilePointer(
+        file_handle, 
+        offset,      // Pass your negative or positive offset directly
+        NULL,        // Not using a 64-bit high-order offset
+        2            // 2 is the literal value for FILE_CURRENT
+    );
+
+    // SetFilePointer returns 0xFFFFFFFF (INVALID_SET_FILE_POINTER) on failure
+    if (result == 0xFFFFFFFF) {
+        return -1; // Standard fseek returns -1 on error
+    }
+
+    return 0; // Standard fseek returns 0 on success
+}
+
+//fwrite
+unsigned int ildz_file_write(const void* buffer, unsigned int size, unsigned int count, void* file_handle) {
+    // 1. Calculate the total number of bytes to write
+    unsigned long bytes_to_write = (unsigned long)(size * count);
+    unsigned long bytes_written = 0;
+
+    if (bytes_to_write == 0) {
+        return 0;
+    }
+
+    // 2. Call the native Windows API
+    int success = WriteFile(
+        file_handle,     // Your FileHandle / void*
+        buffer,          // The data pointer
+        bytes_to_write,  // Total bytes
+        &bytes_written,  // Receives the actual count written by the OS
+        NULL             // No overlapped I/O structures
+    );
+
+    // 3. Return the number of full elements successfully written
+    if (success) {
+        return (unsigned int)(bytes_written / size);
+    }
+
+    return 0;
+}
+
+// fputc
+int file_write_character(int character, void* file_handle) {
+    unsigned char c = (unsigned char)character;
+    unsigned long bytes_written = 0;
+    int success = WriteFile(
+        file_handle,     // Your FileHandle / void*
+        &c,              // Pointer to the character buffer
+        1,               // Number of bytes to write
+        &bytes_written,  // Receives the number of bytes successfully written
+        NULL             // Not using overlapped structure
+    );
+    if (success && bytes_written == 1) {
+        return character;
+    }
+    return -1; 
+}
+
+// The core function handling the Windows API call
+void* ildz_open_file(const char* path, u32 desired_access, u32 share_mode, u32 creation_disposition)
+{
+    void* in = CreateFileA(
+        path,
+        desired_access,
+        share_mode,
+        NULL,
+        creation_disposition,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    if (in == INVALID_HANDLE_VALUE)
+    {
+        logerr("Failed opening ", path, ": ", GetLastError());
+        return INVALID_HANDLE_VALUE; 
+    }
+
+    return in;
+}
+
+// Read wrapper
+void* ildz_open_file_read(const char* path)
+{
+    return ildz_open_file(path, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING);
+}
+
+// Write wrapper
+void* ildz_open_file_write(const char* path)
+{
+    return ildz_open_file(path, GENERIC_WRITE, 0, CREATE_ALWAYS);
+}

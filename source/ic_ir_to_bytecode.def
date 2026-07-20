@@ -1,0 +1,400 @@
+
+
+// Helper macro to calculate string literal lengths safely without string.h
+#define CONST_STR_LEN(s) (sizeof(s) - 1)
+
+void x86_codegen_naive(IRProgram* prog, void* out_file_handle) {
+    if (out_file_handle == INVALID_HANDLE_VALUE) return;
+
+    // We allocate a temporary scratch formatting buffer on the stack for each instruction line.
+    // 512 bytes is more than enough for a single line of x86 text assembly.
+    char line_buf[512];
+    u32 line_len = 0;
+
+    // 1. Calculate and Align Stack Allocation space
+    u32 stack_space = prog->next_vreg_id * 8;
+    stack_space = (stack_space + 15) & ~15; // Maintain 16-byte alignment stack ABI
+
+    // 2. Emit Function Prologue Sequence
+    {
+        const char* prologue1 = "push rbp\nmov rbp, rsp\n";
+        ildz_file_write(prologue1, 1, 22, out_file_handle);
+        
+        // Write the custom structured dynamic stack space subtraction line
+        // Manual safe construction into line_buf since we can't use standard sprintf
+        // "sub rsp, "
+        line_buf[0] = 's'; line_buf[1] = 'u'; line_buf[2] = 'b'; line_buf[3] = ' ';
+        line_buf[4] = 'r'; line_buf[5] = 's'; line_buf[6] = 'p'; line_buf[7] = ','; line_buf[8] = ' ';
+        line_len = 9;
+
+        // Convert the unsigned int stack_space to raw characters inline
+        char num_buf[16];
+        u32 num_len = 0;
+        u32 temp_space = stack_space;
+        if (temp_space == 0) {
+            num_buf[num_len++] = '0';
+        } else {
+            while (temp_space > 0) {
+                num_buf[num_len++] = '0' + (temp_space % 10);
+                temp_space /= 10;
+            }
+        }
+        // Reverse digits into place inside our target line buffer
+        for (i32 j = (i32)num_len - 1; j >= 0; j--) {
+            line_buf[line_len++] = num_buf[j];
+        }
+        line_buf[line_len++] = '\n';
+        ildz_file_write(line_buf, 1, line_len, out_file_handle);
+    }
+
+    // 3. Linear Scan through the flat IR stream
+    for (u32 i = 0; i < prog->count; i++) {
+        IRInstruction inst = prog->instructions[i];
+        line_len = 0;
+
+        // Helper buffers for integer conversions
+        char dest_buf[32]; u32 dest_len = 0;
+        char src1_buf[32]; u32 src1_len = 0;
+        char src2_buf[32]; u32 src2_len = 0;
+        
+        // Compute standard offset indices: Slot = (vreg_id + 1) * 8
+        u32 dest_offset = (inst.dest_vreg + 1) * 8;
+        u32 src1_offset = (inst.src1.vreg + 1) * 8;
+        u32 src2_offset = (inst.src2.vreg + 1) * 8;
+
+        switch (inst.op) {
+            case IR_OP_IMM: {
+                // Formatting target: "mov qword ptr [rbp - %u], %lld\n"
+                // 1. Base command string
+                const char* cmd = "mov qword ptr [rbp - ";
+                for (u32 c = 0; c < 21; c++) line_buf[line_len++] = cmd[c];
+                
+                // 2. Add dest offset bytes
+                u32 tmp = dest_offset;
+                do { dest_buf[dest_len++] = '0' + (tmp % 10); tmp /= 10; } while(tmp > 0);
+                while(dest_len > 0) line_buf[line_len++] = dest_buf[--dest_len];
+                
+                // 3. Mid separator
+                line_buf[line_len++] = ']'; line_buf[line_len++] = ','; line_buf[line_len++] = ' ';
+                
+                // 4. Convert immediate value int64
+                i64 val = inst.src1.imm_int;
+                if (val < 0) { line_buf[line_len++] = '-'; val = -val; }
+                do { src1_buf[src1_len++] = '0' + (val % 10); val /= 10; } while(val > 0);
+                while(src1_len > 0) line_buf[line_len++] = src1_buf[--src1_len];
+                
+                line_buf[line_len++] = '\n';
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+                
+            case IR_OP_ADD: {
+                // mov rax, [rbp - src1_offset]
+                const char* part1 = "mov rax, [rbp - ";
+                for (u32 c = 0; c < 16; c++) line_buf[line_len++] = part1[c];
+                u32 tmp1 = src1_offset;
+                do { src1_buf[src1_len++] = '0' + (tmp1 % 10); tmp1 /= 10; } while(tmp1 > 0);
+                while(src1_len > 0) line_buf[line_len++] = src1_buf[--src1_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = '\n';
+
+                // add rax, [rbp - src2_offset]
+                const char* part2 = "add rax, [rbp - ";
+                for (u32 c = 0; c < 16; c++) line_buf[line_len++] = part2[c];
+                u32 tmp2 = src2_offset;
+                do { src2_buf[src2_len++] = '0' + (tmp2 % 10); tmp2 /= 10; } while(tmp2 > 0);
+                while(src2_len > 0) line_buf[line_len++] = src2_buf[--src2_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = '\n';
+
+                // mov [rbp - dest_offset], rax
+                const char* part3 = "mov [rbp - ";
+                for (u32 c = 0; c < 11; c++) line_buf[line_len++] = part3[c];
+                u32 tmp3 = dest_offset;
+                do { dest_buf[dest_len++] = '0' + (tmp3 % 10); tmp3 /= 10; } while(tmp3 > 0);
+                while(dest_len > 0) line_buf[line_len++] = dest_buf[--dest_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = ','; 
+                line_buf[line_len++] = ' '; line_buf[line_len++] = 'r'; 
+                line_buf[line_len++] = 'a'; line_buf[line_len++] = 'x';
+                line_buf[line_len++] = '\n';
+
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+                
+            case IR_OP_SUB: {
+                // mov rax, [rbp - src1_offset]
+                const char* part1 = "mov rax, [rbp - ";
+                for (u32 c = 0; c < 16; c++) line_buf[line_len++] = part1[c];
+                u32 tmp1 = src1_offset;
+                do { src1_buf[src1_len++] = '0' + (tmp1 % 10); tmp1 /= 10; } while(tmp1 > 0);
+                while(src1_len > 0) line_buf[line_len++] = src1_buf[--src1_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = '\n';
+
+                // sub rax, [rbp - src2_offset]
+                const char* part2 = "sub rax, [rbp - ";
+                for (u32 c = 0; c < 16; c++) line_buf[line_len++] = part2[c];
+                u32 tmp2 = src2_offset;
+                do { src2_buf[src2_len++] = '0' + (tmp2 % 10); tmp2 /= 10; } while(tmp2 > 0);
+                while(src2_len > 0) line_buf[line_len++] = src2_buf[--src2_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = '\n';
+
+                // mov [rbp - dest_offset], rax
+                const char* part3 = "mov [rbp - ";
+                for (u32 c = 0; c < 11; c++) line_buf[line_len++] = part3[c];
+                u32 tmp3 = dest_offset;
+                do { dest_buf[dest_len++] = '0' + (tmp3 % 10); tmp3 /= 10; } while(tmp3 > 0);
+                while(dest_len > 0) line_buf[line_len++] = dest_buf[--dest_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = ',';
+                line_buf[line_len++] = ' '; line_buf[line_len++] = 'r';
+                line_buf[line_len++] = 'a'; line_buf[line_len++] = 'x';
+                line_buf[line_len++] = '\n';
+
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+
+            case IR_OP_LABEL: {
+                line_buf[line_len++] = 'L';
+                u32 tmp = inst.dest_vreg; // Uses dest field for tracking label IDs
+                do { dest_buf[dest_len++] = '0' + (tmp % 10); tmp /= 10; } while(tmp > 0);
+                while(dest_len > 0) line_buf[line_len++] = dest_buf[--dest_len];
+                line_buf[line_len++] = ':'; line_buf[line_len++] = '\n';
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+
+            case IR_OP_JMP: {
+                line_buf[line_len++] = 'j'; line_buf[line_len++] = 'm'; line_buf[line_len++] = 'p'; line_buf[line_len++] = ' ';
+                line_buf[line_len++] = 'L';
+                u32 tmp = inst.dest_vreg;
+                do { dest_buf[dest_len++] = '0' + (tmp % 10); tmp /= 10; } while(tmp > 0);
+                while(dest_len > 0) line_buf[line_len++] = dest_buf[--dest_len];
+                line_buf[line_len++] = '\n';
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+
+            case IR_OP_RETURN: {
+                // mov rax, [rbp - src1_offset]
+                const char* ret_part = "mov rax, [rbp - ";
+                for (u32 c = 0; c < 16; c++) line_buf[line_len++] = ret_part[c];
+                u32 tmp = src1_offset;
+                do { src1_buf[src1_len++] = '0' + (tmp % 10); tmp /= 10; } while(tmp > 0);
+                while(src1_len > 0) line_buf[line_len++] = src1_buf[--src1_len];
+                line_buf[line_len++] = ']'; line_buf[line_len++] = '\n';
+
+                // Epilogue sequence
+                const char* epilogue = "mov rsp, rbp\npop rbp\nret\n";
+                for (u32 c = 0; c < 24; c++) line_buf[line_len++] = epilogue[c];
+
+                ildz_file_write(line_buf, 1, line_len, out_file_handle);
+                break;
+            }
+        }
+    }
+    
+    // Explicitly commit system cache blocks down onto disk storage layers
+    ildz_file_flush(out_file_handle);
+}
+
+
+
+
+
+// --- Win32 Direct Overrides for JIT Memory Flags (If not pulled from ildz_windows.h) ---
+#ifndef PAGE_EXECUTE_READWRITE
+#define PAGE_EXECUTE_READWRITE 0x40
+#endif
+
+// A DWORD under Win32 is strictly an unsigned 32-bit integer
+typedef unsigned long DWORD;
+
+// --- JIT Buffer Infrastructure ---
+typedef struct {
+    u8* bytes;
+    u32 capacity;
+    u32 size;
+} JitBuffer;
+
+// Allocates an explicit block of execution-ready virtual memory pages
+inline bool jit_buffer_init(JitBuffer* buf, u32 initial_capacity) {
+    u32 page_size = (initial_capacity + 4095) & ~4095;
+
+    // 0x1000 = MEM_COMMIT, 0x2000 = MEM_RESERVE, 0x40 = PAGE_EXECUTE_READWRITE
+    buf->bytes = (u8*)VirtualAlloc(NULL, page_size, 0x1000 | 0x2000, PAGE_EXECUTE_READWRITE);
+    if (!buf->bytes) {
+        logerr("JIT Error: Failed to allocate executable page space via VirtualAlloc.");
+        return false;
+    }
+
+    buf->capacity = page_size;
+    buf->size = 0;
+    return true;
+}
+
+inline void jit_emit_byte(JitBuffer* buf, u8 byte) {
+    if (buf->size < buf->capacity) {
+        buf->bytes[buf->size++] = byte;
+    } else {
+        logerr("JIT Error: Bytecode buffer overflowed allocated page size.");
+    }
+}
+
+inline void jit_emit_bytes(JitBuffer* buf, const u8* bytes, u32 count) {
+    for (u32 i = 0; i < count; i++) {
+        jit_emit_byte(buf, bytes[i]);
+    }
+}
+
+inline void jit_buffer_free(JitBuffer* buf) {
+    if (buf->bytes) {
+        // 0x8000 = MEM_RELEASE
+        VirtualFree(buf->bytes, 0, 0x8000);
+        buf->bytes = NULL;
+        buf->capacity = 0;
+        buf->size = 0;
+    }
+}
+
+inline void x86_bytecode_gen(IRProgram* prog, JitBuffer* buf) {
+    if (!buf || !buf->bytes || !prog) {
+        logerr("JIT Generation Error: Received uninitialized component buffers.");
+        return;
+    }
+
+    u32 local_count = prog->count; 
+    void* local_inst_ptr = prog->instructions;
+
+    // --- CASE 1: EMPTY PROGRAM FALLBACK ---
+    if (local_count == 0 || local_inst_ptr == NULL) {
+        loginf("JIT Generation: Empty program encountered. Emitting static fallback sequence.");
+        u8* dest = buf->bytes + buf->size;
+        dest[0] = 0x48; // mov rax, 77
+        dest[1] = 0xC7;
+        dest[2] = 0xC0;
+        dest[3] = 0x4D;
+        dest[4] = 0x00;
+        dest[5] = 0x00;
+        dest[6] = 0x00;
+        dest[7] = 0xC3; // ret
+        
+        buf->size += 8;
+        return;
+    }
+
+    loginf("JIT Generation: Processing linear Three-Address IR program...");
+    u8* dest = buf->bytes + buf->size;
+
+    // 1. Prologue: push rbp, mov rbp, rsp (4 bytes)
+    dest[0] = 0x55; dest[1] = 0x48; dest[2] = 0x89; dest[3] = 0xE5;
+    buf->size += 4;
+    dest += 4;
+       
+    // 2. Allocate stack space (7 bytes)
+    u32 stack_space = (prog->next_vreg_id * 8 + 15) & ~15;
+    dest[0] = 0x48; dest[1] = 0x81; dest[2] = 0xEC;
+    *(u32*)(dest + 3) = stack_space;
+    buf->size += 7;
+    dest += 7;
+
+    // 3. Process IR Instructions
+    for (u32 i = 0; i < prog->count; i++) {
+        if (buf->size + 48 >= buf->capacity) { // Bumped safe size buffer check window
+            logerr("JIT Generation Error: Reached capacity limits during emission loop.");
+            break; 
+        }
+
+        IRInstruction inst = prog->instructions[i];
+        i32 dest_offset = (i32)((inst.dest_vreg + 1) * 8);
+        i32 src1_offset = (i32)((inst.src1.vreg + 1) * 8);
+        i32 src2_offset = (i32)((inst.src2.vreg + 1) * 8);
+
+        switch (inst.op) {
+            case IR_OP_IMM: {
+                loginf("  [JIT] Emitting: mov [stack offset], imm_int");
+                dest[0] = 0x48; dest[1] = 0xC7; dest[2] = 0x85;
+                *(i32*)(dest + 3) = -dest_offset;
+                *(i32*)(dest + 7) = (i32)inst.src1.imm_int;
+                buf->size += 11; dest += 11;
+                break;
+            }
+            case IR_OP_ASSIGN: {
+                loginf("  [JIT] Emitting: mov rax, [src_stack] -> mov [dest_stack], rax");
+                // mov rax, [rbp - src1]
+                dest[0] = 0x48; dest[1] = 0x8B; dest[2] = 0x85; *(i32*)(dest + 3) = -src1_offset;
+                // mov [rbp - dest], rax
+                dest[7] = 0x48; dest[8] = 0x89; dest[9] = 0x85; *(i32*)(dest + 10) = -dest_offset;
+                buf->size += 14; dest += 14;
+                break;
+            }
+            case IR_OP_ADD: {
+                loginf("  [JIT] Emitting: add rax, [src2_stack]");
+                dest[0] = 0x48; dest[1] = 0x8B; dest[2] = 0x85; *(i32*)(dest + 3) = -src1_offset;
+                dest[7] = 0x48; dest[8] = 0x03; dest[9] = 0x85; *(i32*)(dest + 10) = -src2_offset;
+                dest[14] = 0x48; dest[15] = 0x89; dest[16] = 0x85; *(i32*)(dest + 17) = -dest_offset;
+                buf->size += 21; dest += 21;
+                break;
+            }
+            case IR_OP_SUB: {
+                loginf("  [JIT] Emitting: sub rax, [src2_stack]");
+                dest[0] = 0x48; dest[1] = 0x8B; dest[2] = 0x85; *(i32*)(dest + 3) = -src1_offset;
+                dest[7] = 0x48; dest[8] = 0x2B; dest[9] = 0x85; *(i32*)(dest + 10) = -src2_offset;
+                dest[14] = 0x48; dest[15] = 0x89; dest[16] = 0x85; *(i32*)(dest + 17) = -dest_offset;
+                buf->size += 21; dest += 21;
+                break;
+            }
+            case IR_OP_RETURN: {
+                loginf("  [JIT] Emitting: Epilogue function frame jump exit sequence.");
+                dest[0] = 0x48; dest[1] = 0x8B; dest[2] = 0x85; *(i32*)(dest + 3) = -src1_offset;
+                dest[7] = 0x48; dest[8] = 0x89; dest[9] = 0xEC; dest[10] = 0x5D; dest[11] = 0xC3;
+                buf->size += 12; dest += 12;
+                break;
+            }
+            default:
+                logerr("  [JIT Warning] Unimplemented instruction encountered in execution loop.");
+                break;
+        }
+    }
+}
+
+// --- JIT Run Sandbox ---
+typedef int64_t (*JitFunction)(void);
+
+#define STATUS_ACCESS_VIOLATION 0xC0000005
+
+inline void run_generated_bytecode(JitBuffer* buf) {
+    if (!buf || !buf->bytes || buf->size == 0) {
+        logerr("JIT Execution Error: Attempted to run an empty execution buffer.");
+        return;
+    }
+
+    DWORD old_protect;
+    VirtualProtect(buf->bytes, buf->capacity, PAGE_EXECUTE_READWRITE, &old_protect);
+    FlushInstructionCache(GetCurrentProcess(), buf->bytes, buf->capacity);
+
+    loginf("[KERNEL] Jumping to JIT execution frame...");
+
+    JitFunction func = (JitFunction)buf->bytes;
+    int64_t result = 0;
+
+    __try {
+        result = func();
+        loginf("[SUCCESS] JIT machine frame returned control cleanly.");
+        log_write_string("Returned Int: ");
+        log_write_int64(result);
+        log_write_string("\n");
+    }
+    __except(1) { // 1 = EXCEPTION_EXECUTE_HANDLER
+        unsigned long exception_code = GetExceptionCode();
+        
+        logerr("[CRASH DETECTED] The runtime hardware generated a fault exception.");
+        if (exception_code == STATUS_ACCESS_VIOLATION) {
+            logerr("Fault Identity: 0xC0000005 (Access Violation / DEP Execution Trap)");
+        } else {
+            log_write_string("Exception Hex Flag: ");
+            log_write_int64((int64_t)exception_code);
+            log_write_string("\n");
+        }
+        
+        ExitProcess(exception_code);
+    }
+}

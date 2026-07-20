@@ -1,0 +1,482 @@
+
+static bool handle_range_expression(
+    unsigned long bytes_read,
+    const char* buffer,
+    Arena* arena,
+    ParserCtx* ctx,
+    ASTNode* ret_node,
+    StringView target_identifier
+) {
+    loginfline("Identified structural lookup/search operation framework via 'is in' pattern.");
+
+    // Create the lookup operator node
+    ASTNode* search_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    search_node->type = NODE_LOOKUP_OP;
+    search_node->lexeme = (StringView){ .data = "in", .length = 2 };
+
+    // Create the target identifier node
+    ASTNode* target_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    target_node->type = NODE_IDENTIFIER;
+    target_node->lexeme = target_identifier;
+
+    // Head node for range expressions
+    ASTNode* range_expr_head = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    range_expr_head->type = NODE_RANGE_EXPR;
+    range_expr_head->children = NULL;
+    range_expr_head->next = NULL;
+
+    ret_node->children = search_node;
+    search_node->children = target_node;
+    target_node->next = range_expr_head;
+
+    ASTNode* last_interval = NULL;
+    bool processing_ranges = true;
+
+    while (processing_ranges) {
+        // Skip leading whitespace
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+        const char* start_bound = &buffer[ctx->cursor];
+        u32 start_len = 0;
+        while (ctx->cursor < bytes_read && is_valid_id_char(buffer[ctx->cursor])) {
+            start_len++;
+            ctx->cursor++;
+        }
+
+        if (start_len == 0) {
+            logerrline("Syntax Error: Expected a valid range boundary start element.");
+            return false;
+        }
+
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "to", 2)) {
+            ctx->cursor += 2;
+
+            if (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ') {
+                logerrline("Syntax Error: Missing expected space separation following 'to' keyword.");
+                return false;
+            }
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+            const char* end_bound = &buffer[ctx->cursor];
+            u32 end_len = 0;
+            while (ctx->cursor < bytes_read && is_valid_id_char(buffer[ctx->cursor])) {
+                end_len++;
+                ctx->cursor++;
+            }
+
+            if (end_len == 0) {
+                logerrline("Syntax Error: Expected a valid terminal range boundary element after 'to'.");
+                return false;
+            }
+
+            if (start_len != end_len) {
+                logerrline("Type Error: Mismatched range boundary dimensions. Start and end bounds must have identical character lengths.");
+                return false;
+            }
+
+            ASTNode* interval_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            interval_node->type = NODE_RANGE_INTERVAL;
+            interval_node->lexeme.data = start_bound;
+            interval_node->lexeme.length = (u32)(end_bound + end_len - start_bound);
+            interval_node->children = NULL;
+            interval_node->next = NULL;
+
+            if (!range_expr_head->children) {
+                range_expr_head->children = interval_node;
+            } else {
+                last_interval->next = interval_node;
+            }
+            last_interval = interval_node;
+            logerrline("TODO: implement the range expression check for ret c is in a to z, abcd, 0 to 9");
+            return false;
+        } else {
+            ASTNode* lit_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            lit_node->type = NODE_LITERAL_STRING;
+            lit_node->lexeme.data = start_bound;
+            lit_node->lexeme.length = start_len;
+            lit_node->children = NULL;
+            lit_node->next = NULL;
+
+            if (!range_expr_head->children) {
+                range_expr_head->children = lit_node;
+            } else {
+                last_interval->next = lit_node;
+            }
+            last_interval = lit_node;
+            logerrline("TODO: search string in variables or treat as literal");
+            return false;
+        }
+
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+        if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
+            processing_ranges = false;
+        } else if (buffer[ctx->cursor] == ',') {
+            ctx->cursor++;
+        } else {
+            logerrline("Syntax Error: Expected ',' or newline separator boundary after range element expression.");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+typedef enum {
+    COND_EQ,      // is 22
+    COND_NEQ,     // is not 22
+    COND_LT,      // is lthan 45
+    COND_GT,      // is gthan 45
+    COND_LTE,     // is lthan eq 45 / lthan_eq
+    COND_GTE,     // is gthan eq 45 / gthan_eq
+    COND_IN,      // is in <array> / is in <min> to <max>
+    COND_NOT_IN,  // is not in ...
+    COND_RANGE,   // <min> to <max>
+    COND_AND,     // expression and expression
+    COND_OR       // expression or expression
+} ConditionOp;
+
+// Helper to parse either an integer literal or an identifier symbol (e.g. "45", "g_weather_state")
+static ASTNode* parse_value_operand(unsigned long bytes_read, const char* buffer, Arena* arena, ParserCtx* ctx) {
+    skip_spaces(bytes_read, buffer, ctx);
+
+    if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
+        logerrline("Syntax Error: Expected operand value but hit end of line.");
+        return NULL;
+    }
+
+    StringView val_sv;
+    val_sv.data = &buffer[ctx->cursor];
+    val_sv.length = 0;
+
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\t' && 
+           buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+        val_sv.length++;
+        ctx->cursor++;
+    }
+
+    if (val_sv.length == 0) return NULL;
+
+    ASTNode* node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    node->lexeme = val_sv;
+    node->children = NULL;
+    node->next = NULL;
+
+    // Distinguish numeric literal vs identifier
+    bool is_digit = (val_sv.data[0] >= '0' && val_sv.data[0] <= '9');
+    node->type = is_digit ? NODE_LITERAL_INT : NODE_IDENTIFIER;
+
+    return node;
+}
+
+static ASTNode* parse_single_is_condition(unsigned long bytes_read, const char* buffer, Arena* arena, ParserCtx* ctx, ASTNode* lhs_symbol) {
+    skip_spaces(bytes_read, buffer, ctx);
+
+    if (!str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2)) {
+        logerrline("Syntax Error: Expected 'is' keyword in comparison.");
+        return NULL;
+    }
+    ctx->cursor += 2; // skip "is"
+    skip_spaces(bytes_read, buffer, ctx);
+
+    // Check optional "not" modifier
+    bool is_negated = false;
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "not", 3)) {
+        is_negated = true;
+        ctx->cursor += 3;
+        skip_spaces(bytes_read, buffer, ctx);
+    }
+
+    ASTNode* cond_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    cond_node->type = NODE_BINARY_EXPR;
+    cond_node->children = lhs_symbol; // Left child is LHS operand
+    cond_node->next = NULL;
+
+    // Case 1: "is [not] in ..."
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "in", 2)) {
+        ctx->cursor += 2;
+        skip_spaces(bytes_read, buffer, ctx);
+
+        cond_node->as.op = is_negated ? COND_NOT_IN : COND_IN;
+        
+        ASTNode* rhs_val = parse_value_operand(bytes_read, buffer, arena, ctx);
+        if (!rhs_val) return NULL;
+
+        skip_spaces(bytes_read, buffer, ctx);
+
+        // Check if this is a range syntax: "<val> to <max>"
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "to", 2)) {
+            ctx->cursor += 2;
+            skip_spaces(bytes_read, buffer, ctx);
+
+            ASTNode* max_val = parse_value_operand(bytes_read, buffer, arena, ctx);
+            if (!max_val) return NULL;
+
+            // Construct Range Node
+            ASTNode* range_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            range_node->type = NODE_RANGE_EXPR;
+            range_node->as.op = COND_RANGE;
+            range_node->children = rhs_val;
+            rhs_val->next = max_val;
+
+            lhs_symbol->next = range_node;
+        } else {
+            // Single target array/symbol/literal for 'in'
+            lhs_symbol->next = rhs_val;
+        }
+
+        return cond_node;
+    }
+
+    // Case 2: Relational comparisons ("lthan", "gthan")
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "lthan", 5)) {
+        ctx->cursor += 5;
+        cond_node->as.op = is_negated ? COND_GTE : COND_LT;
+    } else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "gthan", 5)) {
+        ctx->cursor += 5;
+        cond_node->as.op = is_negated ? COND_LTE : COND_GT;
+    } else {
+        // Direct equality / inequality: "is 22" or "is not 22"
+        cond_node->as.op = is_negated ? COND_NEQ : COND_EQ;
+    }
+
+    skip_spaces(bytes_read, buffer, ctx);
+
+    // Parse RHS operand
+    ASTNode* rhs_operand = parse_value_operand(bytes_read, buffer, arena, ctx);
+    if (!rhs_operand) {
+        logerrline("Syntax Error: Missing RHS value for comparison.");
+        return NULL;
+    }
+
+    lhs_symbol->next = rhs_operand;
+    return cond_node;
+}
+
+static ASTNode* parse_condition_expression(unsigned long bytes_read, const char* buffer, Arena* arena, ParserCtx* ctx, StringView initial_lhs) {
+    loginflinev("Starting parse_condition_expression for initial LHS symbol: ", ansi_italic(initial_lhs));
+
+    // 1. Build initial LHS identifier node (e.g., g_weather_state)
+    ASTNode* lhs_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+    lhs_node->type = NODE_IDENTIFIER;
+    lhs_node->lexeme = initial_lhs;
+    lhs_node->children = NULL;
+    lhs_node->next = NULL;
+
+    // 2. Parse first condition clause
+    loginfline("Parsing primary condition clause for: ", ansi_italic(initial_lhs));
+    ASTNode* left_expr = parse_single_is_condition(bytes_read, buffer, arena, ctx, lhs_node);
+    if (!left_expr) {
+        logerrline("Failed to parse primary condition clause for symbol: ", ansi_italic(initial_lhs));
+        return NULL;
+    }
+    loginfline("Successfully parsed primary condition clause: ", enum_to_string(ASTNodeType, left_expr->as.op));
+
+    // 3. Loop to check for 'and' / 'or' condition chaining
+    while (true) {
+        skip_spaces(bytes_read, buffer, ctx);
+
+        // Check for line ending
+        if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
+            loginfline("Reached end of line in condition expression.");
+            break;
+        }
+
+        bool is_and = str_match_keyword(buffer, ctx->cursor, bytes_read, "and", 3);
+        bool is_or  = str_match_keyword(buffer, ctx->cursor, bytes_read, "or", 2);
+
+        if (!is_and && !is_or) {
+            loginfline("No further logical joiners (and/or) found. Ending condition chaining.");
+            break; // No more logical joiners on this line
+        }
+
+        const char* op_str = is_and ? "AND" : "OR";
+        loginfline("Found logical operator: ", op_str);
+
+        ctx->cursor += is_and ? 3 : 2;
+        skip_spaces(bytes_read, buffer, ctx);
+
+        // Parse RHS clause
+        ASTNode* rhs_lhs_symbol = NULL;
+
+        // Check shorthand form: "and not 32" or "or 45" (implicitly re-uses initial_lhs)
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2) || 
+            str_match_keyword(buffer, ctx->cursor, bytes_read, "not", 3) ||
+            (buffer[ctx->cursor] >= '0' && buffer[ctx->cursor] <= '9')) {
+            
+            loginfline("Shorthand syntax detected. Implicitly re-using initial LHS symbol: ", initial_lhs);
+
+            // Re-use LHS variable symbol
+            rhs_lhs_symbol = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            rhs_lhs_symbol->type = NODE_IDENTIFIER;
+            rhs_lhs_symbol->lexeme = initial_lhs;
+            rhs_lhs_symbol->children = NULL;
+            rhs_lhs_symbol->next = NULL;
+        } else {
+            // Full explicit form: "and g_music_state is not 12"
+            StringView next_ident;
+            next_ident.data = &buffer[ctx->cursor];
+            next_ident.length = 0;
+
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\t' && 
+                   buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+                next_ident.length++;
+                ctx->cursor++;
+            }
+
+            loginfline("Explicit RHS symbol detected: ", next_ident);
+
+            rhs_lhs_symbol = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            rhs_lhs_symbol->type = NODE_IDENTIFIER;
+            rhs_lhs_symbol->lexeme = next_ident;
+            rhs_lhs_symbol->children = NULL;
+            rhs_lhs_symbol->next = NULL;
+        }
+
+        ASTNode* right_expr = NULL;
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2)) {
+            loginfline("Explicit 'is' keyword found for chained RHS clause.");
+            right_expr = parse_single_is_condition(bytes_read, buffer, arena, ctx, rhs_lhs_symbol);
+        } else {
+            loginfline("Implicit 'is' comparison branch executing for chained RHS clause.");
+            bool is_negated = false;
+            if (str_match_keyword(buffer, ctx->cursor, bytes_read, "not", 3)) {
+                is_negated = true;
+                loginfline("RHS implicit clause has negation ('not').");
+                ctx->cursor += 3;
+                skip_spaces(bytes_read, buffer, ctx);
+            }
+
+            ASTNode* rhs_val = parse_value_operand(bytes_read, buffer, arena, ctx);
+            if (!rhs_val) {
+                logerrline("Failed to parse operand value in implicit RHS clause.");
+                return NULL;
+            }
+
+            loginfline("Parsed value operand for implicit RHS clause: ", rhs_val->lexeme);
+
+            right_expr = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            right_expr->type = NODE_BINARY_EXPR;
+            right_expr->as.op = is_negated ? COND_NEQ : COND_EQ;
+            right_expr->children = rhs_lhs_symbol;
+            rhs_lhs_symbol->next = rhs_val;
+        }
+
+        if (!right_expr) {
+            logerrline("Failed to parse chained right-hand expression.");
+            return NULL;
+        }
+
+        // Wrap into logical AND / OR Binary AST Node
+        loginfline("Building logical AST node joining left and right expression clauses.");
+        ASTNode* logical_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+        logical_node->type = NODE_LOGICAL_EXPR;
+        logical_node->as.op = is_and ? COND_AND : COND_OR;
+        logical_node->children = left_expr;
+        left_expr->next = right_expr;
+
+        left_expr = logical_node; // Cascade for further chaining
+    }
+
+    loginflinev("Finished parse_condition_expression successfully.");
+    return left_expr;
+}
+
+// 2. Local Statement / Symbol Expression Handler
+static bool handle_statement_expression(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx, StringView first_token) {
+    loginfline("Starting to parse statement expression. Current indentation level is ", ctx->current_indent, " and last statement was ", enum_to_string(ASTNodeType, ctx->last_stmt->type));
+
+    bool is_local = lookup_local_symbol(ctx, first_token);
+    bool is_global = symbol_exists_globally(first_token);
+    bool is_known = is_local || is_global;
+
+    if (!is_known) {
+        loginfline("Parsed use of unknown symbol: ", ansi_italic(first_token));
+        ASTNode* unknown_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+        unknown_node->type = NODE_IDENTIFIER;
+        unknown_node->lexeme = first_token;
+        register_unknown_symbol(unknown_node, "function_scope", first_token);
+    }
+
+    // Skip trailing space after identifier
+    while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
+
+    // --- CHECK 1: Is this line completing a pending IF/WHILE condition? ---
+    if (ctx->last_stmt->type == NODE_IF && ctx->last_stmt->children == NULL) {
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2)) {
+            loginfline("Parsing 'if' condition for ", is_known ? "known" : "unknown", " variable: ", ansi_italic(first_token));
+
+            ASTNode* cond_ast = parse_condition_expression(bytes_read, buffer, arena, ctx, first_token);
+            if (!cond_ast) {
+                logerrline("Syntax Error: Failed to parse 'if' statement condition.");
+                return false;
+            }
+
+            ctx->last_stmt->children = cond_ast;
+            loginfline("Successfully parsed 'if' statement condition expression.");
+            return true;
+        }
+    }
+
+    if (ctx->last_stmt->type == NODE_WHILE && ctx->last_stmt->children == NULL) {
+        if (str_match_keyword(buffer, ctx->cursor, bytes_read, "is", 2)) {
+            loginfline("Parsing 'as' loop condition for ", is_known ? "known" : "unknown", " variable: ", ansi_italic(first_token));
+
+            ASTNode* cond_ast = parse_condition_expression(bytes_read, buffer, arena, ctx, first_token);
+            if (!cond_ast) {
+                logerrline("Syntax Error: Failed to parse 'as' loop condition.");
+                return false;
+            }
+
+            ctx->last_stmt->children = cond_ast;
+            loginfline("Successfully parsed 'as' loop condition expression.");
+            return true;
+        }
+    }
+
+    // --- CHECK 2: Standalone Identifier Line ---
+    if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
+        // Handle increment/decrement suffixes (e.g. "actor.val+" or "actor.val-")
+        if (first_token.length > 1) {
+            char last_char = first_token.data[first_token.length - 1];
+            if (last_char == '+' || last_char == '-') {
+                loginfline("Parsed unary auto-increment/decrement operator on: ", first_token);
+                // Create Unary AST Node...
+                logerrline("TODO: create unary ast node");
+                return true;
+            }
+        }
+        loginfline("Standalone identifier statement reached end of line.");
+        return true;
+    }
+
+    // --- CHECK 3: Operators & Assignments (eq, plueq, mineq, muleq, div) ---
+    if (str_match_keyword(buffer, ctx->cursor, bytes_read, "eq", 2)) {
+        ctx->cursor += 2;
+        loginfline("Parsing assignment ('eq') for ", first_token);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, first_token, OP_ASSIGN);
+    }
+    else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "plueq", 5)) {
+        ctx->cursor += 5;
+        loginfline("Parsing addition assignment ('plueq') for ", first_token);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, first_token, OP_ADD_ASSIGN);
+    }
+    else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "mineq", 5)) {
+        ctx->cursor += 5;
+        loginfline("Parsing subtraction assignment ('mineq') for ", first_token);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, first_token, OP_SUB_ASSIGN);
+    }
+    else if (str_match_keyword(buffer, ctx->cursor, bytes_read, "muleq", 5)) {
+        ctx->cursor += 5;
+        loginfline("Parsing multiplication assignment ('muleq') for ", first_token);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, first_token, OP_MUL_ASSIGN);
+    }
+
+    // --- CHECK 4: Function Call or Complex Expression ---
+    loginfline("Processing function call targeting ", is_known ? "known" : "unknown", " symbol: ", ansi_italic(first_token));
+    
+    StringView out_identifier;
+    return parse_identifier_token(bytes_read, buffer, ctx, &out_identifier, true);
+}

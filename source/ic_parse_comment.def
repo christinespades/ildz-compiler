@@ -1,0 +1,58 @@
+
+static bool handle_comment_block(unsigned long bytes_read, const char* buffer, ParserCtx* ctx) {
+    while (ctx->cursor < bytes_read) {
+        // 1. Consume everything until the end of the current comment line
+        while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
+            ctx->cursor++;
+        }
+        
+        // 2. Safely consume the newline characters using the updated handler
+        if (ctx->cursor < bytes_read) {
+            if (!handle_newline(bytes_read, buffer, ctx, true)) return false;
+        }
+        
+        // 3. Lookahead scan to see if the succeeding line is empty
+        u32 trace = ctx->cursor;
+        while (trace < bytes_read && (buffer[trace] == ' ' || buffer[trace] == '\t')) {
+            trace++;
+        }
+        
+        bool is_empty_line = (trace == bytes_read || buffer[trace] == '\n' || buffer[trace] == '\r');
+        
+        if (is_empty_line) {
+            // The succeeding line is empty
+            if (ctx->in_function_scope)
+            {
+                logerrline("ERROR: Empty line not allowed inside a function. Found after comment.");
+                return false;
+            }
+            else 
+            {
+                // else terminate the comment block cleanly
+                ctx->cursor = trace;
+                loginfline("Parsed end of comment(s).");
+                // Consume the empty line's trailing newline sequence if it exists
+                if (ctx->cursor < bytes_read && (buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r')) {
+                    if (!handle_newline(bytes_read, buffer, ctx, true)) return false;
+                }
+                return true; // Exit comment parser state and resume standard processing
+            }
+        }
+        
+        // 4. If the succeeding line isn't empty, check if it explicitly continues with '#'
+        u32 next_line_peek = ctx->cursor;
+        while (next_line_peek < bytes_read && (buffer[next_line_peek] == ' ' || buffer[next_line_peek] == '\t')) {
+            next_line_peek++;
+        }
+        
+        if (next_line_peek < bytes_read && buffer[next_line_peek] == '#') {
+            ctx->cursor = next_line_peek; // Sync cursor to the next comment token and loop
+        } else {
+            // The next line contains text but no empty line preceded it.
+            loginfline("Parsed end of comment(s).");
+            return true;
+        }
+    }
+    loginfline("Parsed end of comment(s).");
+    return true;
+}
