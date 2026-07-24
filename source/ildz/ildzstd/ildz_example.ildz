@@ -31,7 +31,7 @@ fn v update
                         g_music_state is 32
                             actor.val muleq 3
                             endif
-                        actor.val plueq 5
+                        actor.val addeq 5
                         it
                             g_weather_state gthan 30
                                 if
@@ -40,7 +40,7 @@ fn v update
                                         if
                                             actor.val is 34
                                                 endas
-                                    actor.val mineq 2
+                                    actor.val subeq 2
                                     nextit
                     endas
                 g_weather_state is 13

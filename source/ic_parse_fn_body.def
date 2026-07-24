@@ -1,6 +1,6 @@
 
 static bool handle_function_body(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
-    loginflinev("Starting to parse function body. Current indentation level is ", ctx->current_indent, " and last statement was ", enum_to_string(ASTNodeType, ctx->last_stmt->type));
+    loginflinev("Starting to parse function body. Current indentation level is ", ctx->current_indent, " and last statement was ", ctx->last_stmt != NULL ? enum_to_string(ASTNodeType, ctx->last_stmt->type): "(null");
     // 1. Measure leading spaces/tabs for the CURRENT line
     u32 line_indent = 0;
     while (ctx->cursor < bytes_read && (buffer[ctx->cursor] == ' ' || buffer[ctx->cursor] == '\t')) {
@@ -36,7 +36,6 @@ static bool handle_function_body(unsigned long bytes_read, const char* buffer, A
     }
     else {
         // Peek/Extract first token
-        unsigned long token_start_cursor = ctx->cursor;
         StringView first_token;
         first_token.data = &buffer[ctx->cursor];
         first_token.length = 0;
@@ -61,7 +60,4 @@ static bool handle_function_body(unsigned long bytes_read, const char* buffer, A
             return handle_statement_expression(bytes_read, buffer, arena, root_prog, ctx, first_token);
         }
     }
-
-    logerrline("Unknown syntax. Failed handling function body.");
-    return false;
 }

@@ -1,0 +1,9 @@
+typedef struct {
+    BasicBlock** blocks;
+    u32 block_count;
+    u32 block_capacity;
+    BasicBlock* entry;
+    BasicBlock* current;
+    u32 next_vreg_id;
+    u32 next_label_id;
+} IRProgram;

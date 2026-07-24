@@ -1,0 +1,33 @@
+bool process_launch(const char* exe_path)
+{
+    loginfv("Launching process: ", exe_path);
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    // 3. Create the process
+    // Passing NULL as application name and exe_path as command line allows Windows 
+    // to search/resolve quotes and arguments correctly if ever needed.
+    BOOL success = CreateProcessA(
+        NULL,           // Application Name (using command line instead)
+        exe_path,      // Command line string
+        NULL,           // Process security attributes
+        NULL,           // Thread security attributes
+        FALSE,          // Inherit handles flag
+        CREATE_NEW_CONSOLE,              // Creation flags (e.g. CREATE_NEW_CONSOLE if separate window wanted)
+        NULL,           // Environment block
+        NULL,           // lpCurrentDirectory (NULL uses host process working dir)
+        &si,            // Startup info pointer
+        &pi             // Process information pointer
+    );
+    if (!success) {
+        logerr("Failed to launch spawned executable process.");
+        return false;
+    }
+    // 4. Clean up handle leaks (does not kill the spawned process)
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return true;
+}

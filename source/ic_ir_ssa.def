@@ -1,0 +1,131 @@
+static SSAVariableEntry* ssa_find_variable(SSAState* table, const char* name, u32 length) {
+    StringView sv = { name, length };
+    loginf("[SSA] Looking up variable '", sv, "'.");
+    u64 hash = hash_string_view(name, length);
+    u32 index = (u32)(hash % SSA_VARIABLE_CAPACITY);
+    loginf("[SSA] Hash = ", hash, ", starting index = ", index);
+    for(u32 i=0;i<SSA_VARIABLE_CAPACITY;i++)
+    {
+        SSAVariableEntry* entry = &table->entries[index];
+        if(!entry->occupied)
+        {
+            loginf("[SSA] Variable '", sv, "' not found.");
+            return NULL;
+        }
+        if(entry->name_len == length &&
+           memory_compare(entry->name, name, length) == 0)
+        {
+            loginf("[SSA] Found variable '", sv, "' in v", entry->current_vreg);
+            return entry;
+        }
+        index++;
+        if(index >= SSA_VARIABLE_CAPACITY)
+            index=0;
+    }
+    loginf("[SSA] Variable '", sv, "' not found after probing entire table.");
+    return NULL;
+}
+
+static SSAVariableEntry* ssa_set_variable(SSAState* table, const char* name, u32 length, u32 vreg)
+{
+    StringView sv = { name, length };
+    loginf("[SSA] Setting variable '", sv, "' -> v", vreg);
+    u64 hash = hash_string_view(name, length);
+    u32 index = (u32)(hash % SSA_VARIABLE_CAPACITY);
+    loginf("[SSA] Hash = ", hash, ", starting index = ", index);
+    for(u32 i=0;i<SSA_VARIABLE_CAPACITY;i++)
+    {
+        SSAVariableEntry* entry =
+            &table->entries[index];
+        if(!entry->occupied)
+        {
+            loginf("[SSA] Creating new variable '", sv, "' -> v", vreg);
+            entry->occupied=true;
+            entry->name=name;
+            entry->name_len=length;
+            entry->current_vreg=vreg;
+            table->count++;
+            return entry;
+        }
+        if (entry->name_len == length &&
+            memory_compare(entry->name, name, length) == 0)
+        {
+            loginf("[SSA] Updating variable '", sv, "' from v", entry->current_vreg, " to v", vreg);
+            entry->current_vreg = vreg;
+            return entry;
+        }
+        index++;
+        if(index >= SSA_VARIABLE_CAPACITY) index=0;
+    }
+    logerr("[SSA] Variable table is full. Failed to insert variable '", sv, "'.");
+    return NULL;
+}
+
+void ssa_iterator_begin(SSAState* state, SSAIterator* it) {
+    loginf("[SSA] Beginning hashmap iteration.");
+
+    it->state = state;
+    it->index = 0;
+    it->entry = NULL;
+    it->name.data = NULL;
+    it->name.length = 0;
+}
+
+bool ssa_iterator_next(SSAIterator* it) {
+    while(it->index < SSA_VARIABLE_CAPACITY)
+    {
+        SSAVariableEntry* entry = &it->state->entries[it->index++];
+        if(!entry->occupied)
+            continue;
+        it->entry = entry;
+        it->name.data = entry->name;
+        it->name.length = entry->name_len;
+        StringView sv = { it->name.data, it->name.length };
+        loginf("[SSA] Iterator visiting variable '", sv, "' -> v", entry->current_vreg);
+        return true;
+    }
+    loginf("[SSA] Iterator reached end of hashmap.");
+    return false;
+}
+
+void ssa_merge_states(IRLowerContext* ctx, SSAState* left, SSAState* right) {
+    SSAIterator it;
+    ssa_iterator_begin(left, &it);
+    while(ssa_iterator_next(&it))
+    {
+        SSAVariableEntry* L = ssa_find_variable(left, it.name.data, it.name.length);
+        SSAVariableEntry* R = ssa_find_variable(right, it.name.data, it.name.length);
+        if(!L || !R)
+            continue;
+        if(L->current_vreg == R->current_vreg)
+        {
+            ssa_set_variable(&ctx->variables, it.name.data, it.name.length, L->current_vreg);
+            continue;
+        }
+        u32 phi = ir_emit_phi(ctx, L->current_vreg, R->current_vreg);
+        ssa_set_variable(&ctx->variables, it.name.data, it.name.length, phi);
+    }
+}
+
+static void ssa_clone_state(IRLowerContext* ctx, SSAState* dst) {
+    memory_copy(dst, &ctx->variables, sizeof(SSAState));
+}
+
+static void ssa_restore_state(IRLowerContext* ctx, SSAState* src) {
+    memory_copy(&ctx->variables, src, sizeof(SSAState));
+}
+
+static void ssa_complete_loop_phis(IRLowerContext* ctx, BasicBlock* header, SSAState* backedge_state) {
+    for (u32 i = 0; i < header->incomplete_phi_count; i++) {
+        PhiIncomplete* p = &header->incomplete_phis[i];
+        for (u32 j = 0; j < ctx->prog->current->count; j++) {
+            IRInstruction* inst = &ctx->prog->current->instructions[j];
+            if (inst->dest.vreg == p->phi_vreg && inst->op == IR_OP_PHI) {
+                inst->a.kind = OPERAND_VREG;
+                // Index into entries[] instead of treating it as VariableState array
+                inst->b.vreg = backedge_state->entries[p->variable_index].current_vreg;
+                break;
+            }
+        }
+    }
+}

@@ -1,3 +1,30 @@
+// Prefer this
+#define ENUM_VALUE(x) x,
+#define ENUM_STRING(x) case x: return #x;
+
+#define DEFINE_ENUM(name, list) DEFINE_ENUM_IMPL(name, list)
+
+#define DEFINE_ENUM_IMPL(name, list) \
+typedef enum \
+{ \
+    list(ENUM_VALUE) \
+} name; \
+\
+const char* name##_to_string(name val) \
+{ \
+    switch (val) \
+    { \
+        list(ENUM_STRING) \
+    default: \
+        return "<unknown>"; \
+    } \
+}
+
+#define enum_to_string(type, value) \
+    type##_to_string(value)
+
+
+// Not this
 #define ENUM_MAKE(prefix, type) prefix##_##type,
 #define ENUM_STRING_MAKE(prefix, type) { prefix##_##type, #type },
 
@@ -46,8 +73,4 @@ typedef struct
         name##_names,                        \
         sizeof(name##_names) / sizeof(name##_names[0]) \
     };
-
-
-#define enum_to_string(type, value) \
-    type##_to_string(value)
 

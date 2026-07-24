@@ -1,0 +1,146 @@
+#ifndef PAGE_EXECUTE_READWRITE
+#define PAGE_EXECUTE_READWRITE 0x40
+#endif
+typedef unsigned long DWORD;
+
+// --- JIT Bytecode Generation ---
+inline void x86_bytecode_gen(IRProgram* prog, JitBuffer* buf) {
+    if (!buf || !buf->bytes || !prog) {
+        logerr("JIT Generation Error: Received uninitialized component buffers.");
+        return;
+    }
+
+    u8* dest = buf->bytes + buf->size;
+
+    // --- 1. PROLOGUE & STACK FRAME PREPARATION ---
+    // push rbp
+    // mov rbp, rsp
+    // sub rsp, 0x40 (Must allocate 32-byte shadow space + 16-byte alignment)
+    dest[0] = 0x48; dest[1] = 0x83; dest[2] = 0xEC; dest[3] = 0x40;
+    dest[4] = 0x48; dest[5] = 0x83; dest[6] = 0xEC; dest[7] = 0x40;
+    buf->size += 8;
+    dest += 8;
+
+    // --- 2. OPTIONAL: EXE STARTUP PAUSE & API HOOKS ---
+    // Resolve Sleep function pointer dynamically from current process host
+    HMODULE h_kernel32 = GetModuleHandleA("kernel32.dll");
+    void* fn_sleep = (void*)GetProcAddress(h_kernel32, "Sleep");
+    void* fn_exit  = (void*)GetProcAddress(h_kernel32, "ExitProcess");
+
+    if (g_ic_build_mode == IC_BUILD_MODE_EXE && fn_sleep) {
+        loginf("[PE Emitter] Injecting 1-second startup delay sequence into EXE binary...");
+        
+        // mov ecx, 1000 (1000ms delay)
+        dest[0] = 0xB9; *(u32*)(dest + 1) = 1000; dest += 5; buf->size += 5;
+
+        // mov rax, Sleep
+        dest[0] = 0x48; dest[1] = 0xB8; *(u64*)(dest + 2) = (u64)fn_sleep; dest += 10; buf->size += 10;
+
+        // call rax
+        dest[0] = 0xFF; dest[1] = 0xD0; dest += 2; buf->size += 2;
+    }
+
+    // --- 3. BASIC BLOCK INSTRUCTION EMISSION ---
+    if (prog->block_count == 0 || prog->blocks == NULL) {
+        loginf("JIT Generation: Empty program encountered. Emitting fallback.");
+        // mov rax, 77
+        dest[0] = 0x48; dest[1] = 0xC7; dest[2] = 0xC0; 
+        dest[3] = 0x4D; dest[4] = 0x00; dest[5] = 0x00; dest[6] = 0x00;
+        buf->size += 7; dest += 7;
+    } else {
+        u32 stack_space = (prog->next_vreg_id * 8 + 15) & ~15;
+        // sub rsp, stack_space
+        dest[0] = 0x48; dest[1] = 0x81; dest[2] = 0xEC;
+        *(u32*)(dest + 3) = stack_space;
+        buf->size += 7; dest += 7;
+
+        for (u32 b = 0; b < prog->block_count; b++) {
+            BasicBlock* bb = prog->blocks[b];
+            if (!bb) continue;
+
+            for (u32 i = 0; i < bb->count; i++) {
+                if (buf->size + 64 >= buf->capacity) {
+                    logerr("[JIT] Reached capacity limits during emission loop.");
+                    break;
+                }
+                IRInstruction* inst = &bb->instructions[i];
+                if ((u32)inst->op >= ARRAY_COUNT(g_ir_emitters) || g_ir_emitters[inst->op] == NULL) {
+                    logerr("No emitter for opcode ", enum_to_string(IROpcode, inst->op));
+                    continue;
+                }
+                g_ir_emitters[inst->op](inst, prog, buf, &dest);
+            }
+        }
+    }
+
+    // --- 4. EPILOGUE & CLEAN EXIT ---
+    if (g_ic_build_mode == IC_BUILD_MODE_EXE && fn_sleep) {
+        loginf("[PE Emitter] Injecting exit delay & ExitProcess handling...");
+        
+        // Pause 1 second before closing console window
+        dest[0] = 0xB9; *(u32*)(dest + 1) = 1000; dest += 5; buf->size += 5;
+        dest[0] = 0x48; dest[1] = 0xB8; *(u64*)(dest + 2) = (u64)fn_sleep; dest += 10; buf->size += 10;
+        dest[0] = 0xFF; dest[1] = 0xD0; dest += 2; buf->size += 2;
+
+        // ExitProcess(0)
+        // xor ecx, ecx (exit code 0)
+        dest[0] = 0x31; dest[1] = 0xC9; dest += 2; buf->size += 2;
+        // mov rax, ExitProcess
+        dest[0] = 0x48; dest[1] = 0xB8; *(u64*)(dest + 2) = (u64)fn_exit; dest += 10; buf->size += 10;
+        // call rax
+        dest[0] = 0xFF; dest[1] = 0xD0; dest += 2; buf->size += 2;
+    } else {
+        // Normal RET for JIT execution
+        // add rsp, 0x40
+        // pop rbp
+        // ret
+        dest[0] = 0x48; dest[1] = 0x83; dest[2] = 0xC4; dest[3] = 0x40;
+        dest[4] = 0x5D;
+        dest[5] = 0xC3;
+        buf->size += 6; dest += 6;
+    }
+}
+
+typedef i64 (*JitFunction)(void);
+#define STATUS_ACCESS_VIOLATION 0xC0000005
+/*
+inline void run_generated_bytecode(JitBuffer* buf) {
+    if (!buf || !buf->bytes || buf->size == 0) {
+        logerr("JIT Execution Error: Attempted to run an empty execution buffer.");
+        return;
+    }
+    DWORD old_protect;
+    VirtualProtect(buf->bytes, buf->capacity, PAGE_EXECUTE_READWRITE, &old_protect);
+    FlushInstructionCache(GetCurrentProcess(), buf->bytes, buf->capacity);
+    loginf("[KERNEL] Jumping to JIT execution frame...");
+    JitFunction func = (JitFunction)buf->bytes;
+    i64 result = 0;
+    __try {
+        result = func();
+        loginf("[SUCCESS] JIT machine frame returned control cleanly.");
+        log_write_string("Returned Int: ");
+        log_write_int64(result);
+        log_write_string("\n");
+    }
+    __except(1) { // 1 = EXCEPTION_EXECUTE_HANDLER
+        unsigned long exception_code = GetExceptionCode();
+        logerrline("[CRASH DETECTED] The runtime hardware generated a fault exception.");
+        if (exception_code == STATUS_ACCESS_VIOLATION) {
+            logerrline("Fault Identity: 0xC0000005 (Access Violation / DEP Execution Trap)");
+        } else {
+            log_write_string("Exception Hex Flag: ");
+            log_write_int64((i64)exception_code);
+            log_write_string("\n");
+        }
+        ExitProcess(exception_code);
+    }
+}*/
+
+void run_generated_bytecode(JitBuffer* jit_buf) {
+    unsigned long old_protect;
+    VirtualProtect(jit_buf->bytes, jit_buf->capacity, 0x40, &old_protect); // 0x40 = PAGE_EXECUTE_READWRITE
+    FlushInstructionCache(GetCurrentProcess(), jit_buf->bytes, jit_buf->capacity);
+    loginf("Jumping directly into newly generated runtime machine code...");
+    JitFunction execute_code = (JitFunction)jit_buf->bytes;
+    loginf("Execution over. Result: ", execute_code());
+}

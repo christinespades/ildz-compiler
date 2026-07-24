@@ -1,0 +1,27 @@
+#define SSA_VARIABLE_CAPACITY 2048
+
+typedef struct
+{
+    const char* name;
+    u32 name_len;
+    u32 current_vreg;
+    bool occupied;
+} SSAVariableEntry;
+
+typedef struct
+{
+    SSAVariableEntry entries[SSA_VARIABLE_CAPACITY];
+    u32 count;
+} SSAState;
+
+typedef struct
+{
+    SSAState* state;
+    u32 index;
+    SSAVariableEntry* entry;
+    struct
+    {
+        const char* data;
+        u32 length;
+    } name;
+} SSAIterator;

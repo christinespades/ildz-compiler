@@ -1,0 +1,126 @@
+
+// REPLACEMENTS FOR PUTCHAR, PRINTF and FPRINTF (stderr)
+static void* log_output = NULL;
+
+static inline void log_set_output(void* handle)
+{
+    log_output = handle;
+}
+
+static inline void log_putc(char c)
+{
+    if (!log_output) log_output = GetStdHandle(STD_OUTPUT_HANDLE);
+    u32 written;
+    WriteFile(log_output, &c, 1, &written, NULL);
+}
+
+static inline void log_write_string_to(void* handle, const char* s)
+{
+    u32 written;
+    WriteFile(handle, s, (u32)string_length(s), &written, NULL);
+}
+static inline void log_write_string(const char* s)
+{
+    while (*s) log_putc(*s++);
+}
+
+static inline void log_write_string_view(const char* data, u32 length)
+{
+    for (u32 i = 0; i < length; i++)
+        log_putc(data[i]);
+}
+
+static inline void log_write_int64(int64_t value)
+{
+    char buffer[32];
+    int i = 0;
+
+    if (value == 0)
+    {
+        log_putc('0');
+        return;
+    }
+
+    if (value < 0)
+    {
+        log_putc('-');
+        value = -value;
+    }
+
+    while (value > 0)
+    {
+        buffer[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    while (i--)
+        log_putc(buffer[i]);
+}
+
+static inline void log_write_double(double value) {
+    if (value < 0) {
+        log_putc('-');
+        value = -value;
+    }
+    int64_t integer_part = (int64_t)value;
+    log_write_int64(integer_part);
+    log_putc('.');
+    double fraction = value - (double)integer_part;
+    int32_t dec = (int32_t)(fraction * 1000.0 + 0.5); // Rounding logic
+    if (dec < 100) log_putc('0');
+    if (dec < 10)  log_putc('0');
+    log_write_int64(dec);
+}
+
+static inline void log_write_wstring(const wchar_t* ws) {
+    if (!ws) return;
+    while (*ws) {
+        // Cast 16-bit wide character down to standard console 8-bit ASCII
+        log_putc((char)(*ws++));
+    }
+}
+
+static inline void log_write_uint64(uint64_t value)
+{
+    char buffer[32];
+    int i = 0;
+
+    if (value == 0)
+    {
+        log_putc('0');
+        return;
+    }
+
+    while (value > 0)
+    {
+        buffer[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    while (i--)
+        log_putc(buffer[i]);
+}
+
+static inline void log_write_hex(uintptr_t value)
+{
+    const char* hex = "0123456789ABCDEF";
+    char buffer[32];
+    int i = 0;
+
+    if (value == 0)
+    {
+        log_write_string("0x0");
+        return;
+    }
+
+    while (value)
+    {
+        buffer[i++] = hex[value & 0xF];
+        value >>= 4;
+    }
+
+    log_write_string("0x");
+
+    while (i--)
+        log_putc(buffer[i]);
+}

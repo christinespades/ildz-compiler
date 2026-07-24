@@ -1,0 +1,9 @@
+static inline int wchar_to_utf8(const u16* src, int src_bytes, char* dst, int dst_size)
+{
+    int len = WideCharToMultiByte(CP_UTF8, 0, src, src_bytes / sizeof(u16), dst, dst_size - 1, NULL, NULL);
+    if (len > 0)
+        dst[len] = '\0';
+    else
+        dst[0] = '\0';
+    return len;
+}

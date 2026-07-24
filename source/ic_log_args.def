@@ -1,172 +1,3 @@
-
-// REPLACEMENTS FOR PUTCHAR, PRINTF and FPRINTF (stderr)
-static void* log_output = NULL;
-
-static inline void log_set_output(void* handle)
-{
-    log_output = handle;
-}
-
-static inline void log_putc(char c)
-{
-    if (!log_output) log_output = GetStdHandle(STD_OUTPUT_HANDLE);
-    u32 written;
-    WriteFile(log_output, &c, 1, &written, NULL);
-}
-
-static inline void log_write_string_to(void* handle, const char* s)
-{
-    u32 written;
-    WriteFile(handle, s, (u32)string_length(s), &written, NULL);
-}
-static inline void log_write_string(const char* s)
-{
-    while (*s) log_putc(*s++);
-}
-
-static inline void log_write_string_view(const char* data, u32 length)
-{
-    for (u32 i = 0; i < length; i++)
-        log_putc(data[i]);
-}
-
-static inline void log_write_int64(int64_t value)
-{
-    char buffer[32];
-    int i = 0;
-
-    if (value == 0)
-    {
-        log_putc('0');
-        return;
-    }
-
-    if (value < 0)
-    {
-        log_putc('-');
-        value = -value;
-    }
-
-    while (value > 0)
-    {
-        buffer[i++] = '0' + (value % 10);
-        value /= 10;
-    }
-
-    while (i--)
-        log_putc(buffer[i]);
-}
-
-static inline void log_write_double(double value) {
-    if (value < 0) {
-        log_putc('-');
-        value = -value;
-    }
-    int64_t integer_part = (int64_t)value;
-    log_write_int64(integer_part);
-    log_putc('.');
-    double fraction = value - (double)integer_part;
-    int32_t dec = (int32_t)(fraction * 1000.0 + 0.5); // Rounding logic
-    if (dec < 100) log_putc('0');
-    if (dec < 10)  log_putc('0');
-    log_write_int64(dec);
-}
-
-static inline void log_write_wstring(const wchar_t* ws) {
-    if (!ws) return;
-    while (*ws) {
-        // Cast 16-bit wide character down to standard console 8-bit ASCII
-        log_putc((char)(*ws++));
-    }
-}
-
-static inline void log_write_uint64(uint64_t value)
-{
-    char buffer[32];
-    int i = 0;
-
-    if (value == 0)
-    {
-        log_putc('0');
-        return;
-    }
-
-    while (value > 0)
-    {
-        buffer[i++] = '0' + (value % 10);
-        value /= 10;
-    }
-
-    while (i--)
-        log_putc(buffer[i]);
-}
-
-static inline void log_write_hex(uintptr_t value)
-{
-    const char* hex = "0123456789ABCDEF";
-    char buffer[32];
-    int i = 0;
-
-    if (value == 0)
-    {
-        log_write_string("0x0");
-        return;
-    }
-
-    while (value)
-    {
-        buffer[i++] = hex[value & 0xF];
-        value >>= 4;
-    }
-
-    log_write_string("0x");
-
-    while (i--)
-        log_putc(buffer[i]);
-}
-static void log_rgb_color(uint8_t r, uint8_t g, uint8_t b)
-{
-    log_write_string("\x1b[38;2;");
-    log_write_uint64(r);
-    log_write_string(";");
-    log_write_uint64(g);
-    log_write_string(";");
-    log_write_uint64(b);
-    log_write_string("m");
-}
-
-static void log_cycle_color(void)
-{
-    static float hue = 0.0f;
-
-    float s = 1.0f;
-    float v = 1.0f;
-
-    float c = v * s;
-    float x = c * (1.0f - ildz_absf(ildz_modf(hue / 60.0f, 2.0f) - 1.0f));
-    float m = v - c;
-
-    float r, g, b;
-
-    if (hue < 60)       { r = c; g = x; b = 0; }
-    else if (hue < 120) { r = x; g = c; b = 0; }
-    else if (hue < 180) { r = 0; g = c; b = x; }
-    else if (hue < 240) { r = 0; g = x; b = c; }
-    else if (hue < 300) { r = x; g = 0; b = c; }
-    else                { r = c; g = 0; b = x; }
-
-    hue += 40.0f;
-    if (hue >= 360.0f)
-        hue = 0.0f;
-
-    log_rgb_color(
-        (uint8_t)((r + m) * 255),
-        (uint8_t)((g + m) * 255),
-        (uint8_t)((b + m) * 255)
-    );
-}
-
-
 MAKE_ENUM(
     LOG_ARG,
     LogArgType,
@@ -190,7 +21,6 @@ MAKE_ENUM(
     WSTRING,
     STRING_VIEW,
 );
-
 
 typedef struct
 {
@@ -266,7 +96,7 @@ static void log_print_arg(const LogArg* arg)
             log_write_double(arg->d);
             break;
         case LOG_ARG_STRING:
-            log_write_string(arg->s);
+            log_write_string(arg->s ? arg->s : "(null)");
             break;
         case LOG_ARG_STRING_VIEW:
             log_write_string_view(arg->sv.data, arg->sv.length);
@@ -741,6 +571,7 @@ static inline LogArg log_arg_size(size_t v)
         StringView: log_arg_string_view, \
         LogArg: log_arg_passthrough \
     )(x)
+    
 static inline LogArg log_arg_named(const char* name, LogArg arg)
 {
     arg.name = name;
@@ -762,98 +593,3 @@ static inline bool log_allowed(const char* file)
 
     return true;
 }
-
-#define string_print(...) \
-do \
-{ \
-    LogArg _args[] = { LOG_ARGS(__VA_ARGS__) }; \
-    log_write_args(_args, ARRAY_COUNT(_args), false); \
-} while (0)
-
-#define loginf(...)                                                     \
-do                                                                      \
-{                                                                       \
-    const char* file = RELEST_PATH(__FILE__);                           \
-                                                                        \
-    if (log_allowed(file))                                              \
-    {                                                                   \
-        log_set_output(GetStdHandle(STD_OUTPUT_HANDLE));                \
-                                                                        \
-        log_write_string(ANSI_GREEN "\n");                              \
-        log_write_string(file);                                        \
-        log_write_string(":");                                          \
-        log_write_int64(__LINE__);                                      \
-        log_write_string(" ");                                          \
-                                                                        \
-        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
-        log_write_args(_args, ARRAY_COUNT(_args), false);                     \
-                                                                        \
-        log_write_string(ANSI_RESET);                                   \
-    }                                                                   \
-} while (0)
-
-#define loginfrgb(...)                                                     \
-do                                                                     \
-{                                                                      \
-    const char* file = RELEST_PATH(__FILE__);                          \
-                                                                       \
-    if (log_allowed(file))                                             \
-    {                                                                  \
-        log_set_output(GetStdHandle(STD_OUTPUT_HANDLE));               \
-                                                                       \
-        log_cycle_color();                                            \
-        log_write_string("\n");                                        \
-        log_write_string(file);                                        \
-        log_cycle_color();                                            \
-        log_write_string(":");                                         \
-        log_cycle_color();                                            \
-        log_write_int64(__LINE__);                                     \
-        log_cycle_color();                                            \
-        log_write_string(" ");                                         \
-                                                                       \
-        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                    \
-        log_write_args(_args, ARRAY_COUNT(_args), true);                    \
-        log_cycle_color();                                            \
-                                                                       \
-        log_write_string(ANSI_RESET);                                  \
-    }                                                                  \
-} while (0)
-
-
-#define loginfv(...)                                                     \
-do                                                                      \
-{                                                                       \
-    if (g_compiler_log_verbose)                                                       \
-    {                                                                   \
-        const char* file = RELEST_PATH(__FILE__);                       \
-        log_write_string("\n");                                          \
-        log_write_string(file);                                          \
-        log_write_string(":");                                           \
-        log_write_int64(__LINE__);                                       \
-        log_write_string(" ");                                           \
-        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
-        log_write_args(_args, ARRAY_COUNT(_args), false);                       \
-    }                                                                   \
-} while (0)
-
-#define logerr(...)                                                     \
-do                                                                      \
-{                                                                       \
-    const char* file = RELEST_PATH(__FILE__);                           \
-                                                                        \
-    if (log_allowed(file))                                              \
-    {                                                                   \
-        log_set_output(GetStdHandle(STD_ERROR_HANDLE));                 \
-                                                                        \
-        log_write_string(ANSI_RED "\n");                                \
-        log_write_string(file);                                        \
-        log_write_string(":");                                          \
-        log_write_int64(__LINE__);                                      \
-        log_write_string(" ");                                          \
-                                                                        \
-        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
-        log_write_args(_args, ARRAY_COUNT(_args), false);                     \
-                                                                        \
-        log_write_string(ANSI_RESET);                                   \
-    }                                                                   \
-} while (0)

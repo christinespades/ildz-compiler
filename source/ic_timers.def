@@ -1,0 +1,8 @@
+Measure:
+
+Time spent parsing
+Time spent building IR
+Time spent optimizing
+Time spent in register allocation
+Time spent emitting machine code
+Execution time of generated code

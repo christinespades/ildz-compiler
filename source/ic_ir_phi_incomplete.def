@@ -1,0 +1,5 @@
+typedef struct
+{
+    u32 variable_index;
+    u32 phi_vreg;
+} PhiIncomplete;

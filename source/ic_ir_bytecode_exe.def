@@ -1,0 +1,111 @@
+
+static void write_padding(void* handle, u64 current_size, u32 alignment) {
+    u32 remainder = (u32)(current_size % alignment);
+    if (remainder != 0) {
+        u32 pad_size = alignment - remainder;
+        u8 zero_buf[512] = {0};
+        while (pad_size > 0) {
+            u32 chunk = pad_size > sizeof(zero_buf) ? sizeof(zero_buf) : pad_size;
+            ildz_file_write(zero_buf, 1, chunk, handle);
+            pad_size -= chunk;
+        }
+    }
+}
+
+static u32 align_up(u32 size, u32 alignment) {
+    return (size + (alignment - 1)) & ~(alignment - 1);
+}
+
+bool write_pe_executable(const char* filename, const u8* code_bytes, u32 code_size) {
+    if (!filename || !code_bytes || code_size == 0) {
+        logerr("[PE Emitter] Invalid parameters passed to write_pe_executable");
+        return false;
+    }
+    
+    loginf("[PE Emitter] Opening output executable file '", filename, "'...");
+    void* f = ildz_open_file(filename, 0x40000000, 0, 2);
+    if (f == INVALID_HANDLE_VALUE) return false;
+
+    u32 file_alignment    = 0x200;  // 512 bytes on disk
+    u32 section_alignment = 0x1000; // 4096 bytes in RAM
+    
+    u32 raw_code_size  = align_up(code_size, file_alignment);
+    u32 virt_code_size = align_up(code_size, section_alignment);
+    u32 headers_size_raw = 0x400; // 1024 bytes header region
+
+    // --- 1. DOS Header ---
+    IMAGE_DOS_HEADER dos_header = {0};
+    dos_header.e_magic = IMAGE_DOS_SIGNATURE; // 'MZ'
+    dos_header.e_lfanew = 0x80;               // Offset to PE Header
+
+    u8 dos_stub[0x40] = {0}; // Padding between DOS header and PE header
+
+    // --- 2. PE / Optional Header (PE32+) ---
+    IMAGE_NT_HEADERS64 nt_headers = {0};
+    nt_headers.Signature = IMAGE_NT_SIGNATURE; // 'PE\0\0'
+    
+    // File Header
+    nt_headers.FileHeader.Machine = IMAGE_FILE_MACHINE_AMD64; // 0x8664
+    nt_headers.FileHeader.NumberOfSections = 1;
+    nt_headers.FileHeader.TimeDateStamp = 0;
+    nt_headers.FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64); // 0xF0
+    nt_headers.FileHeader.Characteristics = IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE;
+
+    // Optional Header
+    nt_headers.OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC; // 0x020B
+    nt_headers.OptionalHeader.MajorLinkerVersion = 14;
+    nt_headers.OptionalHeader.SizeOfCode = raw_code_size;
+    nt_headers.OptionalHeader.AddressOfEntryPoint = section_alignment; // RVA 0x1000
+    nt_headers.OptionalHeader.BaseOfCode = section_alignment;          // RVA 0x1000
+    nt_headers.OptionalHeader.ImageBase = 0x0000000140000000ULL;
+    nt_headers.OptionalHeader.SectionAlignment = section_alignment;
+    nt_headers.OptionalHeader.FileAlignment = file_alignment;
+    
+    // Version fields (Win 6.0 = Windows 7, compatible with Win 10/11)
+    nt_headers.OptionalHeader.MajorOperatingSystemVersion = 6;
+    nt_headers.OptionalHeader.MinorOperatingSystemVersion = 0;
+    nt_headers.OptionalHeader.MajorSubsystemVersion       = 6; // Fixed offset (0x30)
+    nt_headers.OptionalHeader.MinorSubsystemVersion       = 0;
+
+    nt_headers.OptionalHeader.SizeOfImage = section_alignment + virt_code_size;
+    nt_headers.OptionalHeader.SizeOfHeaders = headers_size_raw;
+    nt_headers.OptionalHeader.Subsystem = IMAGE_SUBSYSTEM_WINDOWS_CUI; // 3 (Console)
+    nt_headers.OptionalHeader.DllCharacteristics = 
+        IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA | 
+        IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | 
+        IMAGE_DLLCHARACTERISTICS_NX_COMPAT | 
+        IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE;
+
+    nt_headers.OptionalHeader.SizeOfStackReserve = 0x100000; // 1 MB
+    nt_headers.OptionalHeader.SizeOfStackCommit  = 0x1000;   // 4 KB
+    nt_headers.OptionalHeader.SizeOfHeapReserve  = 0x100000; // 1 MB
+    nt_headers.OptionalHeader.SizeOfHeapCommit   = 0x1000;   // 4 KB
+    nt_headers.OptionalHeader.NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES; // 16
+
+    // --- 3. Section Header (.text) ---
+    IMAGE_SECTION_HEADER sec_header = {0};
+    memory_copy(sec_header.Name, ".text", 5);
+    sec_header.Misc.VirtualSize = code_size;
+    sec_header.VirtualAddress   = section_alignment;  // RVA 0x1000
+    sec_header.SizeOfRawData    = raw_code_size;
+    sec_header.PointerToRawData = headers_size_raw;   // Offset 0x400
+    sec_header.Characteristics  = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ; // 0x60000020
+
+    // --- 4. Write to Disk ---
+    loginf("[PE Emitter] Writing headers...");
+    ildz_file_write(&dos_header, 1, sizeof(dos_header), f);
+    ildz_file_write(dos_stub, 1, sizeof(dos_stub), f);
+    ildz_file_write(&nt_headers, 1, sizeof(nt_headers), f);
+    ildz_file_write(&sec_header, 1, sizeof(sec_header), f);
+
+    u64 written_headers = sizeof(dos_header) + sizeof(dos_stub) + sizeof(nt_headers) + sizeof(sec_header);
+    write_padding(f, written_headers, headers_size_raw); // Pads headers to 0x400
+
+    loginf("[PE Emitter] Writing .text payload...");
+    ildz_file_write(code_bytes, 1, code_size, f);
+    write_padding(f, code_size, file_alignment); // Pads code to 512 bytes
+
+    CloseHandle(f);
+    loginf("[PE Emitter] Successfully wrote executable '", filename, "'");
+    return true;
+}

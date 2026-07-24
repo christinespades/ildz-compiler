@@ -1,0 +1,49 @@
+#define MAX_LABELS 4096
+#define MAX_PATCHES 4096
+typedef struct
+{
+    u8* bytes;
+    u32 size;
+    u32 capacity;
+    JitLabel labels[MAX_LABELS];
+    u32 label_count;
+    JitPatch patches[MAX_PATCHES];
+    u32 patch_count;
+} JitBuffer;
+
+inline bool jit_buffer_init(JitBuffer* buf, u32 initial_capacity) {
+    loginf("[JIT] Requesting virtual memory page allocation for execution buffer...");
+    u32 page_size = (initial_capacity + 4095) & ~4095;
+    buf->bytes = (u8*)VirtualAlloc(NULL, page_size, 0x1000 | 0x2000, PAGE_EXECUTE_READWRITE);
+    if (!buf->bytes) {
+        logerr("JIT Error: Failed to allocate executable page space via VirtualAlloc.");
+        return false;
+    }
+    buf->capacity = page_size;
+    buf->size = 0;
+    buf->label_count = 0;
+    buf->patch_count = 0;
+    loginf("[JIT] Successfully allocated executable page buffer.");
+    return true;
+}
+inline void jit_emit_byte(JitBuffer* buf, u8 byte) {
+    if (buf->size < buf->capacity) {
+        buf->bytes[buf->size++] = byte;
+    } else {
+        logerr("JIT Error: Bytecode buffer overflowed allocated page size.");
+    }
+}
+inline void jit_emit_bytes(JitBuffer* buf, const u8* bytes, u32 count) {
+    for (u32 i = 0; i < count; i++) {
+        jit_emit_byte(buf, bytes[i]);
+    }
+}
+inline void jit_buffer_free(JitBuffer* buf) {
+    if (buf->bytes) {
+        loginf("[JIT] Releasing executable memory buffer...");
+        VirtualFree(buf->bytes, 0, 0x8000);
+        buf->bytes = NULL;
+        buf->capacity = 0;
+        buf->size = 0;
+    }
+}

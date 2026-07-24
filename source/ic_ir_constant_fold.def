@@ -1,0 +1,221 @@
+typedef struct {
+    bool valid;
+    i64 value;
+} ConstantInfo;
+
+#define MAX_TRACKED_VREGS 1024
+
+// Truncates value based on target IR bit-width (handles overflow wrapping)
+static int64_t truncate_to_type(int64_t val, IRType type)
+{
+    switch (type) {
+        case IR_TYPE_I8:  return (int8_t)val;
+        case IR_TYPE_I16: return (int16_t)val;
+        case IR_TYPE_I32: return (int32_t)val;
+        case IR_TYPE_I64: return (int64_t)val;
+        default:          return val;
+    }
+}
+
+static inline bool is_vreg_valid(u32 vreg) {
+    return vreg < MAX_TRACKED_VREGS;
+}
+// Helper to clamp folded constants to their proper bit-width
+static int64_t truncate_to_bitwidth(int64_t val, uint32_t bits) {
+    if (bits == 0 || bits >= 64) return val;
+    
+    uint64_t mask = (1ULL << bits) - 1;
+    uint64_t uval = (uint64_t)val & mask;
+
+    // Optional: Sign-extend if dealing with signed types
+    // (e.g., for an 8-bit signed -1 stored in 64-bit)
+    bool is_signed = true; // adjust based on your type system
+    if (is_signed && (uval & (1ULL << (bits - 1)))) {
+        uval |= ~mask;
+    }
+    
+    return (int64_t)uval;
+}
+static bool ir_constant_fold_pass(IRProgram* prog)
+{
+    ConstantInfo constants[MAX_TRACKED_VREGS] = {0};
+    bool changed = false;
+
+    for (u32 b = 0; b < prog->block_count; b++) {
+        BasicBlock* block = prog->blocks[b];
+        if (!block) continue;
+
+        for (u32 i = 0; i < block->count; i++) {
+            IRInstruction* ins = &block->instructions[i];
+            u32 dest = ins->dest.vreg;
+            switch (ins->op) {
+                case IR_OP_IMM: {
+                    if (is_vreg_valid(dest)) {
+                        constants[dest].valid = true;
+                        constants[dest].value = truncate_to_type(ins->a.imm_int, ins->type);
+                    }
+                    break;
+                }
+                case IR_OP_ADD:
+                case IR_OP_SUB:
+                case IR_OP_MUL:
+                case IR_OP_DIV:
+                case IR_OP_MOD:
+                case IR_OP_AND:
+                case IR_OP_OR:
+                case IR_OP_XOR:
+                case IR_OP_SHL:
+                case IR_OP_SHR:
+                {
+                    bool a_is_const = is_vreg_valid(ins->a.vreg) && constants[ins->a.vreg].valid;
+                    bool b_is_const = is_vreg_valid(ins->b.vreg) && constants[ins->b.vreg].valid;
+
+                    // --- 1. Full Constant Folding (Both operands are known) ---
+                    if (a_is_const && b_is_const)
+                    {
+                        int64_t val_a = constants[ins->a.vreg].value;
+                        int64_t val_b = constants[ins->b.vreg].value;
+                        int64_t result = 0;
+                        bool can_fold = true;
+
+                        switch (ins->op)
+                        {
+                            case IR_OP_ADD: result = val_a + val_b; break;
+                            case IR_OP_SUB: result = val_a - val_b; break;
+                            case IR_OP_MUL: result = val_a * val_b; break;
+                            case IR_OP_DIV:
+                                if (val_b == 0 || (val_a == INT64_MIN && val_b == -1)) can_fold = false;
+                                else result = val_a / val_b;
+                                break;
+                            case IR_OP_MOD:
+                                if (val_b == 0 || (val_a == INT64_MIN && val_b == -1)) can_fold = false;
+                                else result = val_a % val_b;
+                                break;
+                            case IR_OP_AND: result = val_a & val_b; break;
+                            case IR_OP_OR:  result = val_a | val_b; break;
+                            case IR_OP_XOR: result = val_a ^ val_b; break;
+                            case IR_OP_SHL: 
+                                if (val_b < 0 || val_b >= 64) can_fold = false;
+                                else result = val_a << val_b; 
+                                break;
+                            case IR_OP_SHR: 
+                                if (val_b < 0 || val_b >= 64) can_fold = false;
+                                else result = val_a >> val_b; 
+                                break;
+                            default: can_fold = false; break;
+                        }
+
+                        if (can_fold)
+                        {
+                            result = truncate_to_type(result, ins->type);
+                            ins->op = IR_OP_IMM;
+                            ins->a.kind = OPERAND_IMM;
+                            ins->a.imm_int = result;
+                            ins->b.kind = OPERAND_NONE;
+
+                            if (is_vreg_valid(dest)) {
+                                constants[dest].valid = true;
+                                constants[dest].value = result;
+                            }
+                            changed = true;
+                            break;
+                        }
+                    }
+
+                    // --- 2. Algebraic Identities (One operand constant) ---
+                    if (b_is_const)
+                    {
+                        int64_t val_b = constants[ins->b.vreg].value;
+
+                        // x * 0 -> 0 | x & 0 -> 0
+                        if ((ins->op == IR_OP_MUL || ins->op == IR_OP_AND) && val_b == 0)
+                        {
+                            ins->op = IR_OP_IMM;
+                            ins->a.kind = OPERAND_IMM;
+                            ins->a.imm_int = 0;
+                            ins->b.kind = OPERAND_NONE;
+
+                            if (is_vreg_valid(dest)) {
+                                constants[dest].valid = true;
+                                constants[dest].value = 0;
+                            }
+                            changed = true;
+                            break;
+                        }
+                        // x + 0 -> MOV x | x - 0 -> MOV x | x | 0 -> MOV x
+                        if ((ins->op == IR_OP_ADD || ins->op == IR_OP_SUB || 
+                             ins->op == IR_OP_OR  || ins->op == IR_OP_XOR ||
+                             ins->op == IR_OP_SHL || ins->op == IR_OP_SHR) && val_b == 0)
+                        {
+                            ins->op = IR_OP_COPY;
+                            ins->b.kind = OPERAND_NONE;
+                            changed = true;
+                            break;
+                        }
+                    }
+
+                    if (a_is_const)
+                    {
+                        int64_t val_a = constants[ins->a.vreg].value;
+                        // 0 * x -> 0 | 0 / x -> 0 | 0 & x -> 0
+                        if ((ins->op == IR_OP_MUL || ins->op == IR_OP_DIV || ins->op == IR_OP_AND) && val_a == 0)
+                        {
+                            ins->op = IR_OP_IMM;
+                            ins->a.kind = OPERAND_IMM;
+                            ins->a.imm_int = 0;
+                            ins->b.kind = OPERAND_NONE;
+
+                            if (is_vreg_valid(dest)) {
+                                constants[dest].valid = true;
+                                constants[dest].value = 0;
+                            }
+                            changed = true;
+                            break;
+                        }
+                    }
+
+                    // Invalidate tracking for non-foldable destination
+                    if (is_vreg_valid(dest)) {
+                        constants[dest].valid = false;
+                    }
+                    break;
+                }
+                case IR_OP_JMP_IF_ZERO: {
+                    // Check if condition (operand 'a') is a known constant
+                    if (ins->a.kind == OPERAND_VREG && is_vreg_valid(ins->a.vreg) && constants[ins->a.vreg].valid) {
+                        i64 cond = constants[ins->a.vreg].value;
+                        
+                        if (cond == 0) {
+                            // Condition is ALWAYS zero -> always jump!
+                            // Convert JMP_IF_ZERO into an unconditional JMP
+                            ins->op = IR_OP_JMP;
+                            // ins->label remains intact!
+                        } else {
+                            // Condition is NEVER zero -> jump never taken!
+                            // Convert to NOP so the JIT ignores it
+                            ins->op = IR_OP_NOP;
+                        }
+                        changed = true;
+                    }
+                    break;
+                }
+                default: {
+                    // Invalidate constant tracker if instruction writes to a virtual register
+                    if (ins->dest.kind == OPERAND_VREG && is_vreg_valid(ins->dest.vreg)) {
+                        constants[ins->dest.vreg].valid = false;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+// --- 4. Driver Loop (Fix-point iteration) ---
+void ir_constant_fold(IRProgram* prog)
+{
+    u32 pass_count = 0;
+    const u32 MAX_PASSES = 16; // Guards against infinite loops
+    while (ir_constant_fold_pass(prog) && pass_count < MAX_PASSES) pass_count++;
+}

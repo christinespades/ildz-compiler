@@ -129,7 +129,6 @@ void* ildz_open_file(const char* path, u32 desired_access, u32 share_mode, u32 c
         FILE_ATTRIBUTE_NORMAL,
         NULL
     );
-
     if (in == INVALID_HANDLE_VALUE)
     {
         logerr("Failed opening ", path, ": ", GetLastError());

@@ -1,0 +1,61 @@
+static inline void emit_x64_print(u8** dest, u32* buf_size, void* p_alloc_console, void* p_get_std_handle, void* p_write_file, const char* msg, u32 msg_len) {
+    u8* ptr = *dest;
+
+    // 1. Force Console Allocation (AllocConsole)
+    if (p_alloc_console) {
+        // mov rax, p_alloc_console
+        ptr[0] = 0x48; ptr[1] = 0xB8; *(u64*)(ptr + 2) = (u64)(uintptr_t)p_alloc_console; ptr += 10;
+        // call rax
+        ptr[0] = 0xFF; ptr[1] = 0xD0; ptr += 2;
+    }
+
+    // 2. GetStdHandle(-11) -> STD_OUTPUT_HANDLE
+    // mov ecx, -11
+    ptr[0] = 0xB9; *(u32*)(ptr + 1) = (u32)-11; ptr += 5;
+    // mov rax, p_get_std_handle
+    ptr[0] = 0x48; ptr[1] = 0xB8; *(u64*)(ptr + 2) = (u64)(uintptr_t)p_get_std_handle; ptr += 10;
+    // call rax
+    ptr[0] = 0xFF; ptr[1] = 0xD0; ptr += 2;
+    // mov r10, rax (Save returned HANDLE in volatile r10)
+    ptr[0] = 0x49; ptr[1] = 0x89; ptr[2] = 0xC2; ptr += 3;
+
+    // 3. Embed String Inline
+    // lea rdx, [rip + 2] (Load RDX with pointer to inline string)
+    ptr[0] = 0x48; ptr[1] = 0x8D; ptr[2] = 0x15; *(int32_t*)(ptr + 3) = 2; ptr += 7;
+    // jmp short +msg_len (Skip text execution)
+    ptr[0] = 0xEB; ptr[1] = (u8)msg_len; ptr += 2;
+    for (u32 i = 0; i < msg_len; i++) { ptr[i] = (u8)msg[i]; }
+    ptr += msg_len;
+
+    // 4. WriteFile(HANDLE, lpBuffer, nBytes, &bytesWritten, lpOverlapped)
+    // mov rcx, r10 (HANDLE)
+    ptr[0] = 0x4C; ptr[1] = 0x89; ptr[2] = 0xD1; ptr += 3;
+    // mov r8d, msg_len
+    ptr[0] = 0x41; ptr[1] = 0xB8; *(u32*)(ptr + 2) = msg_len; ptr += 6;
+    // lea r9, [rsp + 0x28] (&bytesWritten scratch area)
+    ptr[0] = 0x4C; ptr[1] = 0x8D; ptr[2] = 0x4C; ptr[3] = 0x24; ptr[4] = 0x28; ptr += 5;
+    // mov qword ptr [rsp + 0x20], 0 (lpOverlapped = NULL)
+    ptr[0] = 0x48; ptr[1] = 0xC7; ptr[2] = 0x44; ptr[3] = 0x24; ptr[4] = 0x20; *(u32*)(ptr + 5) = 0; ptr += 9;
+    // mov rax, p_write_file
+    ptr[0] = 0x48; ptr[1] = 0xB8; *(u64*)(ptr + 2) = (u64)(uintptr_t)p_write_file; ptr += 10;
+    // call rax
+    ptr[0] = 0xFF; ptr[1] = 0xD0; ptr += 2;
+
+    u32 emitted = (u32)(ptr - *dest);
+    *buf_size += emitted;
+    *dest = ptr;
+}
+static inline void emit_x64_sleep(u8** dest, u32* buf_size, void* p_sleep_fn, u32 ms) {
+    u8* ptr = *dest;
+
+    // mov ecx, ms
+    ptr[0] = 0xB9; *(u32*)(ptr + 1) = ms; ptr += 5;
+    // mov rax, p_sleep_fn
+    ptr[0] = 0x48; ptr[1] = 0xB8; *(u64*)(ptr + 2) = (u64)(uintptr_t)p_sleep_fn; ptr += 10;
+    // call rax
+    ptr[0] = 0xFF; ptr[1] = 0xD0; ptr += 2;
+
+    u32 emitted = (u32)(ptr - *dest);
+    *buf_size += emitted;
+    *dest = ptr;
+}

@@ -1,4 +1,3 @@
-
 static inline int string_compare(const char* a, const char* b)
 {
     while (*a && (*a == *b))
@@ -6,11 +5,17 @@ static inline int string_compare(const char* a, const char* b)
         a++;
         b++;
     }
-
     return (unsigned char)*a - (unsigned char)*b;
 }
-
-
+static inline bool string_compare_length(const char* a, const char* b, u32 length)
+{
+    for (u32 i = 0; i < length; i++)
+    {
+        if (a[i] != b[i])
+            return false;
+    }
+    return true;
+}
 static inline char* string_concatenate(char* dest, const char* src) {
     char* start = dest;
     while (*dest != '\0') {
@@ -24,7 +29,6 @@ static inline char* string_concatenate(char* dest, const char* src) {
     *dest = '\0';
     return start;
 }
-
 static inline char* string_concatenate_until(char* dest, const char* src, size_t count) {
     char* start = dest;
     while (*dest != '\0') {
@@ -39,14 +43,11 @@ static inline char* string_concatenate_until(char* dest, const char* src, size_t
     *dest = '\0';
     return start;
 }
-
-
 static inline char* string_copy(char* dest, const char* src) {
     char* start = dest;
     while ((*dest++ = *src++)); 
     return start;
 }
-
 static inline int string_copy_safe(char* dest, unsigned int dest_size, const char* src) {
     if (!dest || dest_size == 0 || !src) {
         return 0; // Return failure/0 to match basic error checking
@@ -62,7 +63,36 @@ static inline int string_copy_safe(char* dest, unsigned int dest_size, const cha
     }
     return 1; // Success
 }
-
+static inline bool string_equal(const char* a, const char* b) {
+    while (*a && *b)
+    {
+        if (*a != *b)
+            return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+// strncmp
+static inline bool string_equal_cstr_len(const char* a, const char* b, u32 b_len)
+{
+    for (u32 i = 0; i < b_len; i++)
+    {
+        if (a[i] == '\0' || a[i] != b[i])
+            return false;
+    }
+    return a[b_len] == '\0';
+}
+bool string_equal_len(const char* a, u32 a_len, const char* b, u32 b_len) {
+    if (a_len != b_len)
+        return false;
+    for (u32 i = 0; i < a_len; i++)
+    {
+        if (a[i] != b[i])
+            return false;
+    }
+    return true;
+}
 // strchr
 static inline char* string_find_first_occurrence(const char* str, int character) {
     char c = (char)character;
@@ -77,35 +107,6 @@ static inline char* string_find_first_occurrence(const char* str, int character)
     }
     return NULL;
 }
-
-static inline bool string_equal(const char* a, const char* b)
-{
-    while (*a && *b)
-    {
-        if (*a != *b)
-            return false;
-
-        a++;
-        b++;
-    }
-
-    return *a == *b;
-}
-
-bool string_equal_len(const char* a, u32 a_len, const char* b, u32 b_len)
-{
-    if (a_len != b_len)
-        return false;
-
-    for (u32 i = 0; i < a_len; i++)
-    {
-        if (a[i] != b[i])
-            return false;
-    }
-
-    return true;
-}
-
 // strrchr
 static inline char* string_find_last_occurrence(const char* str, int character) {
     char* last_match = NULL;
@@ -121,43 +122,40 @@ static inline char* string_find_last_occurrence(const char* str, int character) 
     }
     return last_match; 
 }
-
+int string_has_extension(const char* string, const char* extension)
+{
+    const char* ext = string_find_last_occurrence(string, '.');
+    return ext && string_equal(ext, extension);
+}
 // strstr
 static inline char* string_in_string(const char* haystack, const char* needle) {
     if (*needle == '\0') {
         return (char*)haystack;
     }
-
     // Loop through the main string
     while (*haystack != '\0') {
         const char* h = haystack;
         const char* n = needle;
-
         // Check if the substring matches character-for-character
         while (*h != '\0' && *n != '\0' && *h == *n) {
             h++;
             n++;
         }
-
         // If we reached the end of the needle string, we found a complete match!
         if (*n == '\0') {
             return (char*)haystack;
         }
-
         // No match at this position, advance to the next character in the main string
         haystack++;
     }
-
     return NULL; // Substring not found
 }
-
 //strlen
 static inline size_t string_length(const char* str) {
     const char* s = str;
     while (*s != '\0') s++;
     return (size_t)(s - str);
 }
-
 static inline bool str_match_keyword(const char* buf, u32 cursor, u32 bytes_read, const char* keyword, u32 kw_len) {
     if (cursor + kw_len > bytes_read) return false;
     for (u32 i = 0; i < kw_len; i++) {
@@ -172,58 +170,42 @@ static inline bool str_match_keyword(const char* buf, u32 cursor, u32 bytes_read
     }
     return true;
 }
-
-static inline const char* string_remove_prefix(const char* root, const char* path)
-{
+static inline const char* string_remove_prefix(const char* root, const char* path) {
     const char* a = root;
     const char* b = path;
-
     while (*a && *b && *a == *b)
     {
         a++;
         b++;
     }
-
     if (*a != '\0')
         return path; // Not a child path
-
     if (*b == '\\' || *b == '/')
         b++;
-
     return b;
 }
-
-void string_replace_all(char* str, const char* old, const char* new)
-{
+void string_replace_all(char* str, const char* old, const char* new) {
     char* buffer = HeapAlloc(GetProcessHeap(), 0, 4096);
-
     if (!buffer)
         return;
-
     while (1)
     {
         char* pos = string_in_string(str, old);
         if (!pos)
             break;
-
         buffer[0] = 0;
         string_concatenate_until(buffer, str, pos - str);
         string_concatenate(buffer, new);
         string_concatenate(buffer, pos + string_length(old));
         string_copy(str, buffer);
     }
-
     HeapFree(GetProcessHeap(), 0, buffer);
 }
-
 //strtod
-static bool string_to_f64(const char* s, double* out)
-{
+static bool string_to_f64(const char* s, double* out) {
     if (!s || !*s)
         return false;
-
     bool negative = false;
-
     if (*s == '-')
     {
         negative = true;
@@ -233,15 +215,10 @@ static bool string_to_f64(const char* s, double* out)
     {
         s++;
     }
-
     if (!*s)
         return false;
-
-
     double value = 0.0;
     bool has_digit = false;
-
-
     // Integer part
     while (*s >= '0' && *s <= '9')
     {
@@ -249,15 +226,11 @@ static bool string_to_f64(const char* s, double* out)
         value = value * 10.0 + (double)(*s - '0');
         s++;
     }
-
-
     // Fractional part
     if (*s == '.')
     {
         s++;
-
         double place = 0.1;
-
         while (*s >= '0' && *s <= '9')
         {
             has_digit = true;
@@ -266,17 +239,12 @@ static bool string_to_f64(const char* s, double* out)
             s++;
         }
     }
-
-
     if (!has_digit)
         return false;
-
-
     // Exponent
     if (*s == 'e' || *s == 'E')
     {
         s++;
-
         bool exp_negative = false;
 
         if (*s == '-')
@@ -288,30 +256,21 @@ static bool string_to_f64(const char* s, double* out)
         {
             s++;
         }
-
         if (*s < '0' || *s > '9')
             return false;
-
         int exponent = 0;
-
         while (*s >= '0' && *s <= '9')
         {
             int digit = *s - '0';
-
             // Prevent exponent integer overflow
             if (exponent > 100000)
                 return false;
-
             exponent = exponent * 10 + digit;
             s++;
         }
-
         if (exp_negative)
             exponent = -exponent;
-
-
         double multiplier = 1.0;
-
         if (exponent > 0)
         {
             while (exponent--)
@@ -322,32 +281,21 @@ static bool string_to_f64(const char* s, double* out)
             while (exponent++)
                 multiplier *= 0.1;
         }
-
         value *= multiplier;
     }
-
-
     // Anything remaining is invalid
     if (*s != '\0')
         return false;
-
-
     if (negative)
         value = -value;
-
-
     *out = value;
     return true;
 }
-
 //strtoll
-bool string_to_i64(const char* s, long long* out)
-{
+bool string_to_i64(const char* s, long long* out) {
     if (!s || !*s)
         return false;
-
     bool negative = false;
-
     if (*s == '-')
     {
         negative = true;
@@ -357,32 +305,23 @@ bool string_to_i64(const char* s, long long* out)
     {
         s++;
     }
-
-    if (!*s)
-        return false;
-
+    if (!*s) return false;
     unsigned long long value = 0;
-
     while (*s)
     {
         if (*s < '0' || *s > '9')
             return false;
-
         unsigned digit = (unsigned)(*s - '0');
-
         if (value > (ULLONG_MAX - digit) / 10ULL)
             return false; // overflow while parsing
-
         value = value * 10ULL + digit;
         s++;
     }
-
     if (negative)
     {
         // Allow exactly 9223372036854775808 (-LLONG_MIN)
         if (value > (unsigned long long)LLONG_MAX + 1ULL)
             return false;
-
         if (value == (unsigned long long)LLONG_MAX + 1ULL)
             *out = LLONG_MIN;
         else
@@ -392,68 +331,39 @@ bool string_to_i64(const char* s, long long* out)
     {
         if (value > (unsigned long long)LLONG_MAX)
             return false;
-
         *out = (long long)value;
     }
-
     return true;
 }
-
 //strtoull
-bool string_to_u64(const char* s, unsigned long long* out)
-{
-    if (!s || !*s)
-        return false;
-
-    if (*s == '+')
-        s++;
-
-    if (!*s)
-        return false;
-
+bool string_to_u64(const char* s, unsigned long long* out) {
+    if (!s || !*s) return false;
+    if (*s == '+') s++;
+    if (!*s) return false;
     unsigned long long value = 0;
-
     while (*s)
     {
         if (*s < '0' || *s > '9')
             return false;
-
         unsigned digit = (unsigned)(*s - '0');
-
         if (value > (ULLONG_MAX - digit) / 10ULL)
             return false; // overflow
-
         value = value * 10ULL + digit;
         s++;
     }
-
     *out = value;
     return true;
 }
-
-
-const char* string_view_cstr(StringView sv, char* buffer, u32 buffer_size)
-{
+const char* string_view_cstr(StringView sv, char* buffer, u32 buffer_size) {
     u32 len = sv.length;
-
-    if (len >= buffer_size)
-        len = buffer_size - 1;
-
+    if (len >= buffer_size) len = buffer_size - 1;
     for (u32 i = 0; i < len; i++)
         buffer[i] = sv.data[i];
-
     buffer[len] = '\0';
-
     return buffer;
 }
-
-
-bool string_view_equals(StringView sv, const char* str)
-{
+bool string_view_equals(StringView sv, const char* str) {
     u32 len = string_length(str);
-
-    if (sv.length != len)
-        return false;
-
+    if (sv.length != len) return false;
     return memory_compare(sv.data, str, len) == 0;
 }

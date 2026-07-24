@@ -1,0 +1,13 @@
+#define MAX_LOCAL_SYMBOLS 64
+#define MAX_SCOPE_DEPTH 64
+#define MAX_GLOBAL_LOCAL_SYMBOLS 4096
+LocalSymbol g_all_local_symbols[MAX_GLOBAL_LOCAL_SYMBOLS];
+u32 g_all_local_symbols_count = 0;
+unsigned int g_cur_line_no = 0;
+char g_line[1024];
+char g_project_root_path[MAX_PATH];
+const char* g_current_file;
+bool g_ic_log_verbose = false;
+ICBuildMode g_ic_build_mode = IC_BUILD_MODE_JIT;
+bool g_build_mode_exe_launch_after_build = false;
+char g_ic_program_path[260] = {0};

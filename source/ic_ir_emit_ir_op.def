@@ -1,0 +1,254 @@
+static void emit_IR_OP_ADD(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_add_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_AND(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_and_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_ASSIGN(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+// a = function pointer, b = first argument
+static void emit_IR_OP_CALL(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e={*dest,buf};
+    // function pointer
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg+1)*8);
+    // runtime context
+    x86_emit8(&e,0x49);
+    x86_emit8(&e,0x89);
+    x86_emit8(&e,0xF9);
+    // mov rcx,r15
+    // argument
+    x86_mov_r64_m64(&e, X86_RDX, (inst->b.vreg+1)*8);
+    // Windows shadow space
+    x86_emit8(&e,0x48);
+    x86_emit8(&e,0x83);
+    x86_emit8(&e,0xEC);
+    x86_emit8(&e,32);
+    x86_call_reg(&e, X86_RAX);
+    x86_emit8(&e,0x48);
+    x86_emit8(&e,0x83);
+    x86_emit8(&e,0xC4);
+    x86_emit8(&e,32);
+    x86_mov_m64_r64(&e, (inst->dest.vreg+1)*8, X86_RAX);
+    *dest=e.ptr;
+}
+static void emit_cmp(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest, X86Condition cc) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    // Load a
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    // Load b
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    // Compare
+    x86_cmp_r64_r64(&e, X86_RAX, X86_RCX);
+    // Set result byte
+    x86_setcc_al(&e, cc);
+    // Convert AL -> RAX (0 or 1)
+    x86_movzx_rax_al(&e);
+    // Store result
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_CMP_EQ(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_E);
+}
+static void emit_IR_OP_CMP_NE(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_NE);
+}
+static void emit_IR_OP_CMP_LT(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_L);
+}
+static void emit_IR_OP_CMP_LE(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_LE);
+}
+static void emit_IR_OP_CMP_GT(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_G);
+}
+static void emit_IR_OP_CMP_GE(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    emit_cmp(inst, prog, buf, dest, X86_CC_GE);
+}
+static void emit_IR_OP_COPY(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_DIV(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_cqo(&e);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_idiv_r64(&e, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_IMM(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    // Load 64-bit immediate or integer value into RAX
+    x86_mov_r64_imm64(&e, X86_RAX, (u64)inst->a.imm_u64);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_JMP(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e={*dest,buf};
+    u32 patch = x86_emit_jmp_placeholder(&e);
+    jit_add_patch(buf, inst->label, patch);
+    *dest=e.ptr;
+}
+static void emit_IR_OP_JMP_IF_ZERO(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e={*dest,buf};
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg+1)*8);
+    x86_test_r64_r64(&e, X86_RAX, X86_RAX);
+    u32 patch = x86_emit_jcc_placeholder(&e, X86_CC_E);
+    jit_add_patch(buf, inst->label, patch);
+    *dest=e.ptr;
+}
+static void emit_IR_OP_LABEL(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    (void)dest;
+    jit_define_label(buf, inst->label);
+}
+static void emit_IR_OP_LOAD(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e={*dest,buf};
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg+1)*8);
+    x86_mov_r64_ptr_r64(&e, X86_RCX, X86_RAX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg+1)*8, X86_RCX);
+    *dest=e.ptr;
+}
+static void emit_IR_OP_MOD(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    // RDX:RAX / RCX -> Remainder is left in RDX
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_cqo(&e);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_idiv_r64(&e, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RDX); // Store remainder (RDX)
+    *dest = e.ptr;
+}
+static void emit_IR_OP_MUL(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_imul_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_NEG(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    X86Emitter e = { .ptr = *dest, .buf = buf };
+    i32 src = (inst->a.vreg + 1) * 8;
+    i32 dst = (inst->dest.vreg + 1) * 8;
+    x86_mov_r64_m64(&e, X86_RAX, src);
+    x86_neg_r64(&e, X86_RAX);
+    x86_mov_m64_r64(&e, dst, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_NOP(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)inst; (void)prog; (void)buf; (void)dest;
+    // Do nothing! NOP is ignored during JIT code generation.
+}
+static void emit_IR_OP_NOT(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    X86Emitter e={*dest,buf};
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg+1)*8);
+    x86_not_r64(&e,X86_RAX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg+1)*8, X86_RAX);
+    *dest=e.ptr;
+}
+static void emit_IR_OP_OR(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_or_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_PHI(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    // PHI nodes are lowered out during SSA destruction or handled at block boundaries,
+    // so no x86 code needs to be emitted directly for the PHI instruction itself.
+    (void)inst;
+    (void)prog;
+    (void)buf;
+    (void)dest;
+}
+static void emit_IR_OP_RETURN(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    // Move return value from virtual register slot into RAX (if operand exists)
+    if (inst->a.kind == OPERAND_VREG) {
+        x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    } else if (inst->a.kind == OPERAND_IMM) {
+        x86_mov_r64_imm64(&e, X86_RAX, (u64)inst->a.imm_u64);
+    }
+    // Standard epilogue (pop/ret depending on your emitter setup)
+    x86_ret(&e);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_SHL(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_shl_r64_cl(&e, X86_RAX); // Variable shift uses CL register
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_SHR(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_sar_r64_cl(&e, X86_RAX); // Arithmetic right shift
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_STORE(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e={*dest,buf};
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg+1)*8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg+1)*8);
+    x86_mov_ptr_r64_r64(&e, X86_RAX, X86_RCX);
+    *dest=e.ptr;
+}
+static void emit_IR_OP_SUB(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_sub_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}
+static void emit_IR_OP_XOR(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest) {
+    (void)prog;
+    X86Emitter e = { *dest, buf };
+    x86_mov_r64_m64(&e, X86_RAX, (inst->a.vreg + 1) * 8);
+    x86_mov_r64_m64(&e, X86_RCX, (inst->b.vreg + 1) * 8);
+    x86_xor_r64_r64(&e, X86_RAX, X86_RCX);
+    x86_mov_m64_r64(&e, (inst->dest.vreg + 1) * 8, X86_RAX);
+    *dest = e.ptr;
+}

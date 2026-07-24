@@ -1,0 +1,96 @@
+
+#define string_print(...) \
+do \
+{ \
+    LogArg _args[] = { LOG_ARGS(__VA_ARGS__) }; \
+    log_write_args(_args, ARRAY_COUNT(_args), false); \
+} while (0)
+
+#define loginf(...)                                                     \
+do                                                                      \
+{                                                                       \
+    const char* file = RELEST_PATH(__FILE__);                           \
+                                                                        \
+    if (log_allowed(file))                                              \
+    {                                                                   \
+        log_set_output(GetStdHandle(STD_OUTPUT_HANDLE));                \
+                                                                        \
+        log_write_string(ANSI_GREEN "\n");                              \
+        log_write_string(file);                                        \
+        log_write_string(":");                                          \
+        log_write_int64(__LINE__);                                      \
+        log_write_string(" ");                                          \
+                                                                        \
+        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
+        log_cycle_color_type(COLOR_GREEN);                                            \
+        log_write_args(_args, ARRAY_COUNT(_args), false);                     \
+                                                                        \
+        log_write_string(ANSI_RESET);                                   \
+    }                                                                   \
+} while (0)
+
+#define loginfrgb(...)                                                     \
+do                                                                     \
+{                                                                      \
+    const char* file = RELEST_PATH(__FILE__);                          \
+                                                                       \
+    if (log_allowed(file))                                             \
+    {                                                                  \
+        log_set_output(GetStdHandle(STD_OUTPUT_HANDLE));               \
+                                                                       \
+        log_cycle_color();                                            \
+        log_write_string("\n");                                        \
+        log_write_string(file);                                        \
+        log_cycle_color();                                            \
+        log_write_string(":");                                         \
+        log_cycle_color();                                            \
+        log_write_int64(__LINE__);                                     \
+        log_cycle_color();                                            \
+        log_write_string(" ");                                         \
+                                                                       \
+        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                    \
+        log_write_args(_args, ARRAY_COUNT(_args), true);                    \
+        log_cycle_color();                                            \
+                                                                       \
+        log_write_string(ANSI_RESET);                                  \
+    }                                                                  \
+} while (0)
+
+
+#define loginfv(...)                                                     \
+do                                                                      \
+{                                                                       \
+    if (g_ic_log_verbose)                                                       \
+    {                                                                   \
+        const char* file = RELEST_PATH(__FILE__);                       \
+        log_write_string("\n");                                          \
+        log_write_string(file);                                          \
+        log_write_string(":");                                           \
+        log_write_int64(__LINE__);                                       \
+        log_write_string(" ");                                           \
+        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
+        log_write_args(_args, ARRAY_COUNT(_args), false);                       \
+    }                                                                   \
+} while (0)
+
+#define logerr(...)                                                     \
+do                                                                      \
+{                                                                       \
+    const char* file = RELEST_PATH(__FILE__);                           \
+                                                                        \
+    if (log_allowed(file))                                              \
+    {                                                                   \
+        log_set_output(GetStdHandle(STD_ERROR_HANDLE));                 \
+                                                                        \
+        log_write_string(ANSI_RED "\n");                                \
+        log_write_string(file);                                        \
+        log_write_string(":");                                          \
+        log_write_int64(__LINE__);                                      \
+        log_write_string(" ");                                          \
+                                                                        \
+        LogArg _args[] = { LOG_ARGS(__VA_ARGS__) };                     \
+        log_write_args(_args, ARRAY_COUNT(_args), false);                     \
+                                                                        \
+        log_write_string(ANSI_RESET);                                   \
+    }                                                                   \
+} while (0)

@@ -1,21 +1,19 @@
-
 static bool handle_global_var_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
     loginfline("Processing global variable declaration.");
 
-    // 1. Extract the base type and its suffix modifiers
+    // 1. Extract base type
     StringView var_type;
     if (!parse_type_token(bytes_read, buffer, ctx, &var_type)) {
         logerrline("Syntax Error: Missing or invalid base type for global variable declaration.");
         return false;
     }
 
-    // Parse specific modifier flags out of the type token string
     bool is_pointer = false;
     bool is_array = false;
     for (u32 i = 0; i < var_type.length; i++) {
         if (var_type.data[i] == '.') {
-            if (str_match_keyword(var_type.data, i + 1, var_type.length, "ptr", 3)) is_pointer = true;
-            if (str_match_keyword(var_type.data, i + 1, var_type.length, "ar", 2)) is_array = true;
+            if (i + 4 <= var_type.length && str_match_keyword(var_type.data, i + 1, var_type.length, "ptr", 3)) is_pointer = true;
+            if (i + 3 <= var_type.length && str_match_keyword(var_type.data, i + 1, var_type.length, "ar", 2)) is_array = true;
         }
     }
 
@@ -23,30 +21,34 @@ static bool handle_global_var_decl(unsigned long bytes_read, const char* buffer,
     ASTNode* var_node = parse_identifier_and_create_node(bytes_read, buffer, arena, ctx, NODE_VAR_DECL, true);
     if (!var_node) return false;
 
-    // Consume subsequent spaces to check if there is an assignment operator next
+    // NOTE: Manual AST linking removed here! 
+    // register_global_symbol will handle attaching var_node to root_prog->children safely.
+
+    // Global variable scope isolation
+    ctx->last_stmt = NULL;
+
+    // Consume spaces
     while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
         ctx->cursor++;
     }
 
-    // --- Branch 1: Unassigned Declaration (e.g., "u8 memory") ---
+    // Branch 1: Unassigned Declaration
     if (ctx->cursor == bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') {
         loginfline("Valueless global variable defined.");
         return register_global_symbol(var_node, root_prog, ctx, false);
     }
 
-    // --- Branch 2: Assignment Initialization (e.g., "u8 memory eq something") ---
+    // Branch 2: Assignment Initialization
     if (ctx->cursor + 1 >= bytes_read || buffer[ctx->cursor] != 'e' || buffer[ctx->cursor + 1] != 'q') {
         logerrline("Expected 'eq', but got unexpected characters following global variable identifier.");
         return false;
     }
     ctx->cursor += 2; // Skip "eq"
 
-    // Consume trailing padding spaces
     while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
         ctx->cursor++;
     }
 
-    // Extract Expression StringView
     StringView expr_sv;
     expr_sv.data = &buffer[ctx->cursor];
     expr_sv.length = 0;
@@ -67,20 +69,27 @@ static bool handle_global_var_decl(unsigned long bytes_read, const char* buffer,
     init_expr->next = NULL;
     var_node->children = init_expr;
 
-    // Advanced Evaluation Engine Framework Hook
     if (expr_sv.data[0] >= '0' && expr_sv.data[0] <= '9') {
         init_expr->type = NODE_LITERAL_NUMBER;
         loginfline("Evaluating assigned raw value/math constant expression sequence.");
-        logerrline("TODO: Integrate recursive evaluate_constant_math_expression.");
-        return false;
+        
+        int64_t const_val = 0;
+        if (!evaluate_constant_math_expression(init_expr, &const_val)) {
+            logerrline("Compile Error: Global initializer must be a constant expression.");
+            return false;
+        }
+        // Pass false for is_function
+        return register_global_symbol(var_node, root_prog, ctx, false);
     } 
     else if (expr_sv.data[0] == '"') {
         init_expr->type = NODE_LITERAL_STRING;
         loginfline("Evaluating assigned raw string content.");
+        return register_global_symbol(var_node, root_prog, ctx, false);
     }
     else if (symbol_match(expr_sv, true_sv) || symbol_match(expr_sv, false_sv)) {
         init_expr->type = NODE_LITERAL_BOOLEAN;
         loginfline("Evaluating assigned boolean keyword flags.");
+        return register_global_symbol(var_node, root_prog, ctx, false);
     }
     else {
         init_expr->type = NODE_IDENTIFIER;
@@ -97,9 +106,14 @@ static bool handle_global_var_decl(unsigned long bytes_read, const char* buffer,
             logerrline("Compilation Error: Assigned identifier or functional expression sequence is unknown or out of scope.");
             return false;
         }
-        logerrline("TODO: Perform deep cross-check compatibility rules.");
-        return false;
+        
+        StringView rhs_type = {0};
+        if (resolve_symbol_type(ctx, sym_sv, NODE_IDENTIFIER, &rhs_type)) {
+            if (!symbol_match(var_type, rhs_type)) {
+                logerrline("Type Error: Incompatible global variable assignment type.");
+                return false;
+            }
+        }
+        return register_global_symbol(var_node, root_prog, ctx, false);
     }
-    logerrline("TODO");
-    return false;
 }

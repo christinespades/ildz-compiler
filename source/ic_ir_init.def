@@ -1,0 +1,9 @@
+static inline void ir_init(IRProgram* prog, Arena* arena) {
+    prog->block_capacity = 1024;
+    prog->block_count = 0;
+    prog->next_vreg_id = 0;
+    prog->next_label_id = 0;
+    prog->blocks = (BasicBlock**)arena_alloc(arena, sizeof(BasicBlock*) * prog->block_capacity);
+    prog->entry = ir_new_block(prog,arena);
+    prog->current = prog->entry;
+}

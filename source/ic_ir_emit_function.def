@@ -1,0 +1,29 @@
+static void emit_function_prologue(X86Emitter* e, u32 stack_size) {
+    // push rbp
+    x86_emit8(e, 0x55);
+    // mov rbp,rsp
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x89);
+    x86_emit8(e, 0xE5);
+    // push r15
+    x86_emit8(e, 0x41);
+    x86_emit8(e, 0x57);
+    // sub rsp, stack_size
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x81);
+    x86_emit8(e, 0xEC);
+    x86_emit32(e, stack_size);
+}
+static void emit_function_epilogue(X86Emitter* e) {
+    // mov rsp,rbp
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x89);
+    x86_emit8(e,0xEC);
+    // pop r15
+    x86_emit8(e,0x41);
+    x86_emit8(e,0x5F);
+    // pop rbp
+    x86_emit8(e,0x5D);
+    // ret
+    x86_emit8(e,0xC3);
+}

@@ -1,22 +1,3 @@
-
-typedef enum
-{
-#define X(name) name,
-#include "assignment_op.def"
-#undef X
-} AssignmentOP;
-const char* AssignmentOP_to_string(AssignmentOP val)
-{
-    switch (val)
-    {
-#define X(name) case name: return #name;
-#include "assignment_op.def"
-#undef X
-    default:
-        return "<unknown>";
-    }
-}
-
 static bool handle_assignment_expression(
     unsigned long bytes_read, 
     const char* buffer, 
@@ -38,6 +19,14 @@ static bool handle_assignment_expression(
     while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
         rhs_sv.length++;
         ctx->cursor++;
+    }
+
+    // Trim trailing whitespace
+    while (rhs_sv.length > 0 && 
+          (rhs_sv.data[rhs_sv.length - 1] == ' ' || 
+           rhs_sv.data[rhs_sv.length - 1] == '\t' || 
+           rhs_sv.data[rhs_sv.length - 1] == '\r')) {
+        rhs_sv.length--;
     }
 
     if (rhs_sv.length == 0) {
@@ -79,13 +68,12 @@ static bool handle_assignment_expression(
         }
 
         StringView sym_sv = { .data = rhs_sv.data, .length = sym_len };
-        if (!lookup_local_symbol(ctx, sym_sv) && !symbol_exists_globally(sym_sv)) {
+        if (symbol_exists_locally(ctx, sym_sv) == NULL && !symbol_exists_globally(sym_sv)) {
             register_unknown_symbol(rhs_node, "function_scope", sym_sv);
         }
     }
 
     // 5. TYPE CHECKING & VALIDATION
-    // Extract RHS target symbol name if RHS is an identifier
     u32 rhs_sym_len = 0;
     while (rhs_sym_len < rhs_sv.length && rhs_sv.data[rhs_sym_len] != ' ' && rhs_sv.data[rhs_sym_len] != '(') {
         rhs_sym_len++;
@@ -99,28 +87,22 @@ static bool handle_assignment_expression(
     bool rhs_has_type = resolve_symbol_type(ctx, rhs_sym_sv, rhs_node->type, &rhs_type);
 
     if (lhs_has_type) {
-        // Rule A: Arithmetic operators (plueq, mineq, muleq) require numeric types
         if (op == OP_ADD_ASSIGN || op == OP_SUB_ASSIGN || op == OP_MUL_ASSIGN) {
             if (!is_numeric_type(lhs_type)) {
-                logerrline("Type Error: Arithmetic operator on non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'. You cannot use ", enum_to_string(AssignmentOP, op), " on ", lhs_type, " variable named ", ansi_italic(target_var), " on ");
+                logerrline("Type Error: Arithmetic operator on non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
                 return false;
             }
         }
 
-        // Rule B: Type compatibility check between LHS and RHS
         if (rhs_node->type == NODE_LITERAL_NUMBER) {
-            // Must be a numeric LHS variable
             if (!is_numeric_type(lhs_type)) {
-                logerrline("Type Error: Cannot assign numeric literal '", rhs_sv, 
-                           "' to non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
+                logerrline("Type Error: Cannot assign numeric literal '", rhs_sv, "' to non-numeric variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
                 return false;
             }
-            // Validate float vs int and check numeric bounds
             if (!validate_numeric_literal_assignment(target_var, lhs_type, rhs_sv)) {
                 return false;
             }
         } else if (rhs_has_type) {
-            // Identifiers, string/bool literals require exact type matching
             if (!symbol_match(lhs_type, rhs_type)) {
                 logerrline("Type Error: Incompatible assignment! Cannot assign value of type '", rhs_type, "' to variable ", ansi_italic(target_var), " of type '", lhs_type, "'.");
                 return false;
@@ -131,6 +113,7 @@ static bool handle_assignment_expression(
     // 6. Build Assignment Statement Node
     ASTNode* assign_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
     assign_node->type = NODE_ASSIGNMENT;
+    assign_node->assign_op = op; // <--- Store the compound operator here
     assign_node->lexeme = target_var;
     
     // Wire LHS -> RHS link
@@ -138,13 +121,12 @@ static bool handle_assignment_expression(
     assign_node->children = lhs_node;
     assign_node->next = NULL;
 
-    // Attach to current statement stream
-    if (ctx->last_stmt) {
-        ctx->last_stmt->next = assign_node;
+    if (ctx->last_stmt) ctx->last_stmt->next = assign_node;
+    else if (ctx->current_fn_node) {
+        ctx->current_fn_node->children = assign_node;
     }
     ctx->last_stmt = assign_node;
 
     loginflinergb("Processed variable ", enum_to_string(AssignmentOP, op), " assignment with value ", rhs_sv, " for ", ansi_italic(target_var), " on ");
     return true;
 }
-

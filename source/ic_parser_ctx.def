@@ -1,0 +1,19 @@
+typedef struct {
+    u32 cursor;
+    bool in_function_scope;
+    bool in_struct_scope;
+    bool expecting_empty_line;
+    u32 total_paths;
+    u32 returning_paths;
+    ASTNode* last_stmt;
+    LocalSymbol local_symbols[MAX_LOCAL_SYMBOLS];
+    u32 local_symbol_count;
+    u32 current_indent;
+    u32 if_nesting_level;
+    u32 while_nesting_level;
+    ScopeFrame scope_stack[MAX_SCOPE_DEPTH];
+    u32 scope_depth;
+    ASTNode* current_fn_node;   // Direct pointer to current function's AST node
+    StringView current_fn_type; // Active function's return type ("v", "bl", etc.)
+    bool last_return_was_unknown_symbol;
+} ParserCtx;

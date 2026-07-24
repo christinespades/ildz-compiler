@@ -1,0 +1,9 @@
+typedef struct {
+    const char* name;
+    u32 length;
+    VariableKind kind;
+    StringView type_sv;
+    const char* first_occurrence_file_name;
+    u32 first_occurrence_line_no;
+    const char* first_occurrence_line_text;
+} LocalSymbol;

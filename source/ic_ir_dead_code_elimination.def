@@ -1,0 +1,64 @@
+void execute_global_dead_code_elimination(void) {
+    loginf("[Semantic Analysis] Scanning global AST compilation units for dead code blocks...");
+    for (u32 i = 0; i < g_ast_root_count; i++) {
+        if (g_ast_roots[i]) {
+            resolve_ast_dependencies(g_ast_roots[i]->children);
+        }
+    }
+    Symbol* protected_entry_sym = NULL;
+    for (u32 i = 0; i < g_ast_root_count && !protected_entry_sym; i++) {
+        if (!g_ast_roots[i]) continue;
+        ASTNode* current = g_ast_roots[i]->children;
+        while (current) {
+            if (current->type == NODE_FUNCTION) {
+                for (u32 s = 0; s < g_symbol_count; s++) {
+                    if (g_symbol_registry[s].is_function_decl && g_symbol_registry[s].node == current) {
+                        protected_entry_sym = &g_symbol_registry[s];
+                        loginf("[Dead Code Elimination] Preserving entry function: ", ansi_italic(protected_entry_sym->target_sv));
+                        break;
+                    }
+                }
+                if (protected_entry_sym) break;
+            }
+            current = current->next;
+        }
+    }
+
+    for (u32 i = 0; i < g_ast_root_count; i++) {
+        if (!g_ast_roots[i]) continue;
+        ASTNode* prev = NULL;
+        ASTNode* current = g_ast_roots[i]->children;
+        while (current) {
+            if (current->type == NODE_FUNCTION) {
+                Symbol* definition_sym = NULL;
+                for (u32 s = 0; s < g_symbol_count; s++) {
+                    if (g_symbol_registry[s].is_function_decl && g_symbol_registry[s].node == current) {
+                        definition_sym = &g_symbol_registry[s];
+                        break;
+                    }
+                }
+                if (definition_sym && definition_sym == protected_entry_sym) {
+                    prev = current;
+                    current = current->next;
+                    continue;
+                }
+                if (definition_sym && definition_sym->ref_count == 0) {
+                    loginf("[Dead Code Elimination] Pruning uncalled function ", ansi_italic(definition_sym->target_sv));
+                    // Save node to remove before re-linking
+                    ASTNode* node_to_remove = current;
+                    if (prev == NULL) {
+                        g_ast_roots[i]->children = current->next;
+                    } else {
+                        prev->next = current->next;
+                    }
+                    current = current->next;
+                    // Sever next pointer so traversals don't bleed into pruned code
+                    node_to_remove->next = NULL;
+                    continue;
+                }
+            }
+            prev = current;
+            current = current->next;
+        }
+    }
+}

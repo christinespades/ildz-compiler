@@ -202,7 +202,6 @@ static bool validate_numeric_literal_assignment(
     */
     if (literal_is_fp)
     {
-        char* end = NULL;
         double value;
 
         if (!string_to_f64(buf, &value))

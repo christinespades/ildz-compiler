@@ -1,0 +1,15 @@
+typedef struct BasicBlock BasicBlock;
+struct BasicBlock
+{
+    u32 id;
+    IRInstruction* instructions;
+    u32 count;
+    u32 capacity;
+    BasicBlock* true_edge;
+    BasicBlock* false_edge;
+    BasicBlock** predecessors;
+    u32 predecessor_count;
+    u32 predecessor_capacity;
+    PhiIncomplete incomplete_phis[256];
+    u32 incomplete_phi_count;
+};

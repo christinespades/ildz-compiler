@@ -1,29 +1,42 @@
+#define ast_node_type(X) \
+    X(NODE_ASSIGNMENT) \
+    X(NODE_BINARY_OP) \
+    X(NODE_BINARY_EXPR) \
+    X(NODE_CALL) \
+    X(NODE_EXPRESSION) \
+    X(NODE_FUNCTION) \
+    X(NODE_IDENTIFIER) \
+    X(NODE_IF) \
+    X(NODE_LITERAL_BOOLEAN) \
+    X(NODE_LITERAL_INT) \
+    X(NODE_LITERAL_NUMBER) \
+    X(NODE_LITERAL_STRING) \
+    X(NODE_LOGICAL_EXPR) \
+    X(NODE_LOOKUP_OP) \
+    X(NODE_PROGRAM) \
+    X(NODE_RANGE_EXPR) \
+    X(NODE_RANGE_INTERVAL) \
+    X(NODE_RETURN) \
+    X(NODE_STRUCT_DECL) \
+    X(NODE_STRUCT_MEMBER) \
+    X(NODE_UNARY_EXPR) \
+    X(NODE_VAR_DECL) \
+    X(NODE_WHILE)
 
-typedef enum
-{
-#define X(name) name,
-#include "ast_node_type.def"
-#undef X
-} ASTNodeType;
-const char* ASTNodeType_to_string(ASTNodeType val)
-{
-    switch (val)
-    {
-#define X(name) case name: return #name;
-#include "ast_node_type.def"
-#undef X
-    default:
-        return "<unknown>";
-    }
-}
+DEFINE_ENUM(ASTNodeType, ast_node_type)
 
 typedef struct ASTNode {
     ASTNodeType type;
     struct ASTNode* next;        // Sibling linking (e.g., next statement)
     struct ASTNode* children;    // First child node (e.g., body of function)
     StringView lexeme;
+    AssignmentOP assign_op;
     union {
         int64_t int_value;       // Raw data for constants
         int op;          // or BinaryOp/ConditionOp
     } as;
 } ASTNode;
+
+#define MAX_COMPILATION_UNITS 1024
+static ASTNode* g_ast_roots[MAX_COMPILATION_UNITS];
+static u32 g_ast_root_count = 0;

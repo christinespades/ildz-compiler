@@ -1,6 +1,32 @@
-#this is a test
+# this is a comment
+# lines beginning with # are comments
+# below is a function
+# since its the first in the file,
+# it becomes the entry point when this is file is compiled as the root program
+# it takes no arguments but returns a u8
+# you can let it return whatever you want
+# only if designating the function as void do you not need a "ret" statement
+# otherwise, you need as many rets as there are code paths
+# we have eq, addeq, subeq, muleq and diveq
 
-fn v test
-	u8 sadsa 
-	sadsa plueq 1
-	ret
+#this function is always maintained since its the first
+fn u8 test_two
+	u8 fdgdfgfdsdh eq 211
+	fdgdfgfdsdh diveq 211
+	ret fdgdfgfdsdh
+
+#this function is pruned since it doesnt get called and its not the first
+fn u8 test
+	u8 value eq 12
+	value addeq 212
+	#the line below, if uncommented, would give an error since you havent defined this variable here
+	#fdgdfgfdsdh addeq 2
+	ret value
+
+#this is a global variable
+u8 woah eq 23
+#and its ok that we define it after we use it!! yay
+#and its available to use in any .ildz file :))
+#same as every function is
+#local variables are not, however. so the u8 value above goes out of scope up there
+

@@ -1,0 +1,7 @@
+typedef enum {
+    OPERAND_NONE,
+    OPERAND_VREG,       // Value is inside a virtual register
+    OPERAND_INT,         // Value is an immediate literal integer constant
+    OPERAND_SYMBOL,
+    OPERAND_IMM
+} IRKind;

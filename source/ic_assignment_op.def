@@ -1,0 +1,32 @@
+#define assignment_op(X) \
+    X(OP_PLAIN_ASSIGNMENT) \
+    X(OP_ADD_ASSIGN) \
+    X(OP_SUB_ASSIGN) \
+    X(OP_MUL_ASSIGN) \
+    X(OP_DIV_ASSIGN) \
+    X(OP_BITWISE_NOT) \
+    X(OP_LOGICAL_NOT) \
+    X(COND_NOT) \
+    X(OP_ADD) \
+    X(OP_SUB) \
+    X(OP_MUL) \
+    X(OP_DIV) \
+    X(OP_MOD) \
+    X(OP_BITWISE_AND) \
+    X(OP_BITWISE_OR) \
+    X(OP_BITWISE_XOR) \
+    X(OP_LSHIFT) \
+    X(OP_RSHIFT) \
+    X(OP_EQ) \
+    X(OP_NEQ) \
+    X(OP_LT) \
+    X(OP_LTE) \
+    X(OP_GT) \
+    X(OP_GTE) \
+    X(OP_LOGICAL_AND) \
+    X(OP_LOGICAL_OR) \
+    X(OP_IN) \
+    X(OP_NOT_IN) \
+    X(OP_RANGE)
+
+DEFINE_ENUM(AssignmentOP, assignment_op)

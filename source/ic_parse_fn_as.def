@@ -24,7 +24,7 @@ static bool handle_function_body_while(unsigned long bytes_read, const char* buf
     if (!root_prog->children) {
         root_prog->children = while_node;
     } else {
-        ctx->last_stmt->next = while_node;
+        if (ctx->last_stmt) ctx->last_stmt->next = while_node;
     }
     ctx->last_stmt = while_node;
 

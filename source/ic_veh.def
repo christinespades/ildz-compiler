@@ -1,0 +1,217 @@
+#if defined(_WIN32)
+    #pragma comment(lib, "dbghelp.lib")
+
+    static size_t veh_str_append(char* dest, size_t max_size, size_t cur_len, const char* src)
+    {
+        if (!dest || !src || cur_len >= max_size) return cur_len;
+        while (*src && cur_len + 1 < max_size) {
+            dest[cur_len++] = *src++;
+        }
+        dest[cur_len] = '\0';
+        return cur_len;
+    }
+
+    static size_t veh_uint_to_dec(char* dest, size_t max_size, size_t cur_len, unsigned long value)
+    {
+        char tmp[32];
+        int i = 0;
+        if (value == 0) {
+            tmp[i++] = '0';
+        } else {
+            while (value > 0) {
+                tmp[i++] = (char)('0' + (value % 10));
+                value /= 10;
+            }
+        }
+        while (i > 0 && cur_len + 1 < max_size) {
+            dest[cur_len++] = tmp[--i];
+        }
+        if (cur_len < max_size) dest[cur_len] = '\0';
+        return cur_len;
+    }
+
+    static size_t veh_uint_to_hex(char* dest, size_t max_size, size_t cur_len, unsigned long long value)
+    {
+        static const char hex_digits[] = "0123456789ABCDEF";
+        char tmp[32];
+        int i = 0;
+        if (value == 0) {
+            tmp[i++] = '0';
+        } else {
+            while (value > 0) {
+                tmp[i++] = hex_digits[value & 0xF];
+                value >>= 4;
+            }
+        }
+        while (i > 0 && cur_len + 1 < max_size) {
+            dest[cur_len++] = tmp[--i];
+        }
+        if (cur_len < max_size) dest[cur_len] = '\0';
+        return cur_len;
+    }
+
+    inline void PrintStack(CONTEXT* ctx, const char* crashInfoPrefix)
+    {
+        HANDLE process = GetCurrentProcess();
+        SymInitialize(process, NULL, TRUE);
+        STACKFRAME64 frame = {0};
+        DWORD machine;
+    #ifdef _M_X64
+        machine = IMAGE_FILE_MACHINE_AMD64;
+        frame.AddrPC.Offset = ctx->Rip;
+        frame.AddrFrame.Offset = ctx->Rbp;
+        frame.AddrStack.Offset = ctx->Rsp;
+    #elif _M_IX86
+        machine = IMAGE_FILE_MACHINE_I386;
+        frame.AddrPC.Offset = ctx->Eip;
+        frame.AddrFrame.Offset = ctx->Ebp;
+        frame.AddrStack.Offset = ctx->Esp;
+    #endif
+        frame.AddrPC.Mode = AddrModeFlat;
+        frame.AddrFrame.Mode = AddrModeFlat;
+        frame.AddrStack.Mode = AddrModeFlat;
+
+        char reportBuffer[4096] = {0};
+        size_t len = 0;
+        len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, crashInfoPrefix);
+
+        for (int i = 0; i < 32; i++)
+        {
+            if (!StackWalk64(machine, process, GetCurrentThread(),
+                &frame, ctx, NULL,
+                SymFunctionTableAccess64,
+                SymGetModuleBase64,
+                NULL))
+                break;
+
+            DWORD64 addr = frame.AddrPC.Offset;
+            char buffer[sizeof(SYMBOL_INFO) + 256] = {0};
+            PSYMBOL_INFO symbol = (PSYMBOL_INFO)buffer;
+            symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+            symbol->MaxNameLen = 255;
+            DWORD64 displacement = 0;
+
+            char symbolStr[256] = "";
+            size_t symLen = 0;
+
+            if (SymFromAddr(process, addr, &displacement, symbol))
+            {
+                symLen = veh_str_append(symbolStr, sizeof(symbolStr), symLen, symbol->Name);
+                symLen = veh_str_append(symbolStr, sizeof(symbolStr), symLen, " + 0x");
+                symLen = veh_uint_to_hex(symbolStr, sizeof(symbolStr), symLen, displacement);
+            }
+            else
+            {
+                symLen = veh_str_append(symbolStr, sizeof(symbolStr), symLen, "0x");
+                symLen = veh_uint_to_hex(symbolStr, sizeof(symbolStr), symLen, addr);
+            }
+
+            char lineStr[256] = "";
+            size_t lineLen = 0;
+            IMAGEHLP_LINE64 line = {0};
+            line.SizeOfStruct = sizeof(line);
+            DWORD lineDisplacement = 0;
+            if (SymGetLineFromAddr64(process, addr, &lineDisplacement, &line))
+            {
+                const char* relativePath = RELEST_PATH(line.FileName);
+                lineLen = veh_str_append(lineStr, sizeof(lineStr), lineLen, " AT LINE ");
+                lineLen = veh_str_append(lineStr, sizeof(lineStr), lineLen, relativePath);
+                lineLen = veh_str_append(lineStr, sizeof(lineStr), lineLen, ":");
+                lineLen = veh_uint_to_dec(lineStr, sizeof(lineStr), lineLen, line.LineNumber);
+            }
+
+            if (i == 0)
+            {
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, "\nDURING ");
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, symbolStr);
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, lineStr);
+            }
+            else if (i == 1)
+            {
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, " IN FUNCTION ");
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, symbolStr);
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, lineStr);
+            }
+            else
+            {
+                int indentLevel = i - 1;
+                char indentStr[128] = "";
+                int indentCount = (indentLevel * 4 < 120) ? (indentLevel * 4) : 120;
+                for (int s = 0; s < indentCount; s++) {
+                    indentStr[s] = ' ';
+                }
+                indentStr[indentCount] = '\0';
+
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, "\n");
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, indentStr);
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, "[");
+                len = veh_uint_to_dec(reportBuffer, sizeof(reportBuffer), len, indentLevel);
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, "] ");
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, symbolStr);
+                len = veh_str_append(reportBuffer, sizeof(reportBuffer), len, lineStr);
+            }
+        }
+        logerr(reportBuffer);
+    }
+
+    inline const char* ExceptionToString(DWORD code)
+    {
+        switch (code)
+        {
+            case EXCEPTION_ACCESS_VIOLATION: return "Access violation";
+            case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
+            case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
+            case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
+            case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Float divide by zero";
+            case EXCEPTION_IN_PAGE_ERROR: return "In page error";
+            default: return "Unknown exception";
+        }
+    }
+
+    inline LONG CALLBACK VectoredHandler(PEXCEPTION_POINTERS ExceptionInfo)
+    {
+        DWORD code = ExceptionInfo->ExceptionRecord->ExceptionCode;
+        switch (code)
+        {
+            case EXCEPTION_ACCESS_VIOLATION:
+            case EXCEPTION_ILLEGAL_INSTRUCTION:
+            case EXCEPTION_STACK_OVERFLOW:
+            case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+            case EXCEPTION_DATATYPE_MISALIGNMENT:
+            case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+            case EXCEPTION_INT_DIVIDE_BY_ZERO:
+            case EXCEPTION_PRIV_INSTRUCTION:
+            case EXCEPTION_IN_PAGE_ERROR:
+                break; // real crash
+            default:
+                return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        char crashInfoPrefix[512] = {0};
+        size_t prefixLen = 0;
+
+        if (code == EXCEPTION_ACCESS_VIOLATION)
+        {
+            ULONG_PTR type = ExceptionInfo->ExceptionRecord->ExceptionInformation[0];
+            ULONG_PTR addr = ExceptionInfo->ExceptionRecord->ExceptionInformation[1];
+            const char* op =
+                (type == 0) ? "READ" :
+                (type == 1) ? "WRITE" :
+                (type == 8) ? "EXECUTE" : "UNKNOWN";
+
+            prefixLen = veh_str_append(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, "Access violation: ");
+            prefixLen = veh_str_append(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, op);
+            prefixLen = veh_str_append(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, " at 0x");
+            prefixLen = veh_uint_to_hex(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, (unsigned long long)addr);
+        }
+        else 
+        {
+            prefixLen = veh_str_append(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, ExceptionToString(code));
+            prefixLen = veh_str_append(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, " at 0x");
+            prefixLen = veh_uint_to_hex(crashInfoPrefix, sizeof(crashInfoPrefix), prefixLen, (unsigned long long)(uintptr_t)ExceptionInfo->ExceptionRecord->ExceptionAddress);
+        }
+
+        PrintStack(ExceptionInfo->ContextRecord, crashInfoPrefix);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+#endif

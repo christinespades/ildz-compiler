@@ -1,0 +1,5 @@
+typedef enum {
+    VAR_LOCAL_PARAM,
+    VAR_LOCAL_VAR,
+    VAR_GLOBAL
+} VariableKind;

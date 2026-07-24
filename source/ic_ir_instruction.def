@@ -1,0 +1,11 @@
+typedef struct {
+    IROpcode op;
+    IRType type;
+    IROperand dest; // dest_vreg
+    IROperand a; //src1
+    IROperand b;//src2
+    IROperand c;
+    u32 label;
+    PhiInput phi_inputs[8];
+    u32 phi_count;
+} IRInstruction;

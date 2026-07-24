@@ -1,0 +1,12 @@
+static u64 hash_string_view( // FNV-1a
+    const char* data,
+    u32 length)
+{
+    u64 hash = 1469598103934665603ULL;
+    for(u32 i=0;i<length;i++)
+    {
+        hash ^= (u8)data[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}

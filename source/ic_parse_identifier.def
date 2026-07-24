@@ -59,8 +59,12 @@ static bool parse_identifier_token(unsigned long bytes_read, const char* buffer,
         return false;
     }
 
-    if (symbol_exists_globally(*out_identifier)) {
-        logerrline("Compilation Error: Duplicate symbol declaration detected!");
+    Symbol* sym = symbol_exists_globally(*out_identifier);
+    if (sym != NULL) {
+        logerrline("Duplicate symbol declaration. ", ansi_italic(*out_identifier), 
+                   " was first defined at line ", sym->first_occurrence_line_no, 
+                   " in ", sym->first_occurrence_file_name, ":\n", 
+                   sym->first_occurrence_line_text, "\nIt was then illegally redefined on ");
         return false;
     }
 

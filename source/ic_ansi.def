@@ -2,3 +2,5 @@
 #define ANSI_RED   "\033[0;31m"
 #define ANSI_RESET "\033[0m"
 #define ANSI_RGB(r,g,b) "\x1b[38;2;" #r ";" #g ";" #b "m"
+#define ansi_italic(str) "\x1b[3m", str, "\x1b[23m"
+#define ansi_bold(str) "\x1b[1m", str, "\x1b[22m"

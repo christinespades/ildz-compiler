@@ -1,0 +1,5 @@
+
+typedef struct {
+    u32 id;
+    u32 patch_offset;
+} JitPatch;

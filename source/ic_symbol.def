@@ -1,3 +1,29 @@
+static LocalSymbol* register_local_symbol(ParserCtx* ctx, StringView name_sv, StringView type_sv, VariableKind kind) {
+    if (ctx->local_symbol_count >= MAX_LOCAL_SYMBOLS) {
+        logerrline("Compiler Error: Local symbol table overflow capacity.");
+        return NULL;
+    }
+
+    // 1. Context-local entry
+    LocalSymbol* local = &ctx->local_symbols[ctx->local_symbol_count++];
+    local->name = name_sv.data;
+    local->length = name_sv.length;
+    local->type_sv = type_sv;
+    local->kind = kind;
+    local->first_occurrence_file_name = arena_string_copy(&g_compiler_arena, g_current_file);
+    local->first_occurrence_line_no = g_cur_line_no;
+    local->first_occurrence_line_text = arena_string_copy(&g_compiler_arena, g_line);
+
+    // 2. Global tracking entry (for cross-scope diagnostics)
+    if (g_all_local_symbols_count < MAX_GLOBAL_LOCAL_SYMBOLS) {
+        LocalSymbol* global_local = &g_all_local_symbols[g_all_local_symbols_count++];
+        *global_local = *local; // Struct copy all fields at once
+    } else {
+        logerrline("Compiler Warning: Global local-symbol capacity exceeded.");
+    }
+
+    return local;
+}
 
 // here we should read from the binary mapped data cache thing. we call this whenever a new symbol name is parsed, and we lookup with a hashtable. 
 // so
@@ -8,18 +34,18 @@
 // pointer already points to symbols
 // begin parsing
 
-bool symbol_exists_globally(StringView name_sv) {
+Symbol* symbol_exists_globally(StringView name_sv) {
     for (u32 i = 0; i < g_symbol_count; i++) {
         Symbol* sym = &g_symbol_registry[i];
 
         if (sym->target_sv.length == name_sv.length &&
             memory_equal(sym->target_sv.data, name_sv.data, name_sv.length)) 
         {
-            loginfline("Symbol ", ansi_italic(name_sv), " matched with ", ansi_italic(sym->target_sv));
-            return true;
+            loginf("Symbol ", ansi_italic(name_sv), " exists globally. Matched with ", ansi_italic(sym->target_sv));
+            return sym;
         }
     }
-    return false;
+    return NULL;
 }
 
 static inline bool symbol_match(StringView s1, StringView s2) {
@@ -27,24 +53,41 @@ static inline bool symbol_match(StringView s1, StringView s2) {
     return memory_equal(s1.data, s2.data, s1.length);
 }
 
-
 // Helper to look up an identifier locally
-static bool lookup_local_symbol(ParserCtx* ctx, StringView name) {
+static LocalSymbol* symbol_exists_locally(ParserCtx* ctx, StringView name) {
     for (u32 i = 0; i < ctx->local_symbol_count; i++) {
         StringView local_sv = { 
             .data = ctx->local_symbols[i].name, 
             .length = ctx->local_symbols[i].length 
         };
         if (symbol_match(local_sv, name)) {
-            return true;
+            loginf("Found match for local symbol ", ansi_italic(local_sv));
+            return &ctx->local_symbols[i];
         }
     }
-    return false;
+    logerr("Failed to find a match for local symbol ", ansi_italic(name));
+    return NULL;
 }
 
 
+static LocalSymbol* symbol_exists_in_any_local(StringView name) {
+    for (u32 i = 0; i < g_all_local_symbols_count; i++) {
+        StringView local_sv = { 
+            .data = g_all_local_symbols[i].name, 
+            .length = g_all_local_symbols[i].length 
+        };
+        if (symbol_match(local_sv, name)) {
+            loginf("Found match for local symbol after a global search", ansi_italic(local_sv));
+            return &g_all_local_symbols[i];
+        }
+    }
+    logerr("Failed to find a match for local symbol after a global search ", ansi_italic(name));
+    return NULL;
+}
+
 // Retrieves the type StringView for a local variable, global symbol, or literal
 static bool resolve_symbol_type(ParserCtx* ctx, StringView symbol_sv, ASTNodeType rhs_type, StringView* out_type) {
+    //loginfline("Resolving symbol type for ", ansi_italic(symbol_sv), " where RHS is ", enum_to_string(ASTNodeType, rhs_type), " and "); 
     // 1. Literal values return implicit types
     if (rhs_type == NODE_LITERAL_BOOLEAN) {
         *out_type = (StringView){ .data = "bl", .length = 2 };
@@ -90,27 +133,60 @@ static bool resolve_symbol_type(ParserCtx* ctx, StringView symbol_sv, ASTNodeTyp
 // Basic atomic increment or simple lock if using real threads later. 
 // For a simple synchronous loop, a direct increment works perfectly:
 void register_unknown_symbol(ASTNode* node, const char* scope, StringView target_sv) {
+    // 1. Check if symbol is already registered in this scope
+    for (u32 i = 0; i < g_unknown_symbol_count; i++) {
+        Symbol* existing = &g_unknown_symbol_registry[i];
+        
+        bool same_len = existing->target_sv.length == target_sv.length;
+        bool same_name = same_len && (memory_compare(existing->target_sv.data, target_sv.data, target_sv.length) == 0);
+        
+        // Scope match check (handles NULL scopes gracefully)
+        bool same_scope = (existing->scope_name == scope) || 
+                           (existing->scope_name && scope && string_compare(existing->scope_name, scope) == 0);
+
+        if (same_name && same_scope) {
+            existing->ref_count++; // Increment usage metrics without duplicating
+            loginfline("Unknown symbol ", ansi_italic(target_sv), " already registered. Incremented reference count.");
+            return;
+        }
+    }
+
+    // 2. Register new unknown symbol if not found
     if (g_unknown_symbol_count < MAX_UNKNOWN_SYMBOLS) {
         Symbol* sym = &g_unknown_symbol_registry[g_unknown_symbol_count++];
         sym->node = node;
         sym->scope_name = scope;
         sym->target_sv = target_sv;
         sym->is_known = false;
+        sym->ref_count = 1;
+        sym->first_occurrence_file_name = arena_string_copy(&g_compiler_arena, g_current_file);
+        sym->first_occurrence_line_no = g_cur_line_no;
+        sym->first_occurrence_line_text = arena_string_copy(&g_compiler_arena, g_line);
+        
+        loginfline("Registered unknown symbol ", ansi_italic(node->lexeme), " on ");
     } else {
-        logerr("Exceeded maximum unknown symbol capacity.");
+        logerrline("Exceeded maximum unknown symbol capacity.");
     }
-    loginfline("Registered unknown symbol ", ansi_italic(node->lexeme), " on ");
 }
 
 
 static bool register_global_symbol(ASTNode* node, ASTNode* root_prog, ParserCtx* ctx, bool is_function) {
     // 1. Link into the AST Program Linkage Chain
-    if (!root_prog->children) {
+if (!root_prog->children) {
         root_prog->children = node;
     } else {
-        ctx->last_stmt->next = node;
+        ASTNode* curr = root_prog->children;
+        while (curr->next != NULL) {
+            curr = curr->next;
+        }
+        curr->next = node;
     }
-    ctx->last_stmt = node;
+
+    // Ensure node->next is cleanly terminated
+    node->next = NULL;
+
+    // Global symbol registration resets statement tracking
+    ctx->last_stmt = NULL;
 
     // 2. Register into Global Symbol Registry
     if (g_symbol_count < MAX_GLOBAL_SYMBOLS) {
@@ -122,6 +198,9 @@ static bool register_global_symbol(ASTNode* node, ASTNode* root_prog, ParserCtx*
         sym->is_known = true;
         sym->is_function_decl = is_function;
         sym->ref_count = 0;
+        sym->first_occurrence_file_name = arena_string_copy(&g_compiler_arena, g_current_file);
+        sym->first_occurrence_line_no = g_cur_line_no;
+        sym->first_occurrence_line_text = arena_string_copy(&g_compiler_arena, g_line);
         return true;
     } 
     
@@ -136,8 +215,6 @@ bool resolve_unknown_symbols() // unknown variable names, function calls etc..
     for (u32 i = 0; i < g_unknown_symbol_count; i++)
     {
         Symbol* sym = &g_unknown_symbol_registry[i];
-        ASTNode* defining_source_node = NULL;
-        
         // Check if the symbol can be known now that all files are loaded
         if (symbol_exists_globally(sym->target_sv))
         {
@@ -148,17 +225,25 @@ bool resolve_unknown_symbols() // unknown variable names, function calls etc..
         }
         else
         {
-            // Throw explicit contextual tracking data
-            // Print out the target text block slice accurately since it isn't null-terminated
-            log_write_string("  Target identifier literal: ");
-            for(u32 c = 0; c < sym->target_sv.length; c++) {
-                log_putc(sym->target_sv.data[c]);
+            LocalSymbol* locsym = symbol_exists_in_any_local(sym->target_sv);
+            if (locsym != NULL) {
+                logerr("Invalid use of previously known identifier ", ansi_italic(sym->target_sv), 
+                       " on line ", sym->first_occurrence_line_no, 
+                       " in ", sym->first_occurrence_file_name, ":\n", 
+                       sym->first_occurrence_line_no, " |", ansi_italic(sym->first_occurrence_line_text), 
+                       "\n- This was first defined as a local ", ansi_italic(locsym->type_sv), 
+                       (locsym->kind == VAR_LOCAL_PARAM ? " function argument on line " 
+                                                        : " function variable on line "), 
+                       locsym->first_occurrence_line_no, " in ", locsym->first_occurrence_file_name, ":\n", 
+                       locsym->first_occurrence_line_no, " |", ansi_italic(locsym->first_occurrence_line_text), ansi_bold("\n-- SOLUTION"), ": Either declare it again if you want it as a local variable, or, if you intended to use the same identifier, move it out of its original local scope and make it global.");
             }
-            logerrline("Compilation Error: Unknown identifier or type reference! Location Context Scope: ", sym->scope_name);
+            else {
+                logerr("Unknown identifier ", ansi_italic(sym->target_sv), " on line ", sym->first_occurrence_line_no, " in ", sym->first_occurrence_file_name, ":\n", sym->first_occurrence_line_no, " |", ansi_italic(sym->first_occurrence_line_text));
+            }
             return false;
         }
     }
-    loginfline("Resolved all ", resolved_count, " previously unknown symbols in the final pass.");
+    loginf("Resolved all ", resolved_count, " previously unknown symbols in the final pass.");
     return true;
 }
 

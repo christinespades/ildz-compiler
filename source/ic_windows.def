@@ -1,17 +1,34 @@
+#define STRIP_PREFIX "C:\\Users\\Public\\Downloads\\000github\\ildz-compiler\\source\\"
+#define RELEST_PATH(p) (string_in_string(p, STRIP_PREFIX) ? string_in_string(p, STRIP_PREFIX) + string_length(STRIP_PREFIX) : p)
+
 int _fltused = 0;
+
+typedef unsigned short WCHAR;
+typedef unsigned long ULONG;
+typedef unsigned long long ULONG64;
+typedef unsigned long ULONG_PTR;
+typedef ULONG_PTR SIZE_T;
+typedef unsigned short WORD;
+typedef unsigned char BYTE;
+
+typedef const void* LPCVOID;
+typedef const WCHAR* LPCWSTR;
+
+typedef int BOOL;
+typedef long LONG;
+typedef unsigned long DWORD;
+typedef unsigned long long DWORD64;
+typedef unsigned int UINT;
+
 typedef void* HANDLE;
-#define STD_OUTPUT_HANDLE ((unsigned long)-11)
-#define STD_ERROR_HANDLE  ((unsigned long)-12)
-#define GENERIC_READ             (0x80000000L)
-#define GENERIC_WRITE            (0x40000000L)
-#define FILE_SHARE_READ          (0x00000001)
-#define CREATE_ALWAYS            (2)
-#define OPEN_EXISTING            (3)
-#define FILE_ATTRIBUTE_NORMAL    (0x00000080)
+typedef void* LPVOID;
+typedef WCHAR* LPWSTR;
 
-__declspec(dllimport) void* __stdcall GetStdHandle(unsigned long nStdHandle);
+#define TRUE 1
+#define FALSE 0
+#define NULL ((void*)0)
 
-#define INVALID_HANDLE_VALUE ((void*)(unsigned __int64)-1)
+#define MAX_PATH 260
 typedef struct _WIN32_FIND_DATAA {
     unsigned long dwFileAttributes;
     unsigned long ftCreationTime[2];
@@ -24,50 +41,462 @@ typedef struct _WIN32_FIND_DATAA {
     char          cFileName[MAX_PATH];
     char          cAlternateFileName[14];
 } WIN32_FIND_DATAA;
+
+#define CREATE_ALWAYS           2
+#define FILE_ATTRIBUTE_NORMAL   0x00000080
+#define FILE_BEGIN              0
+#define FILE_CURRENT            1
+#define FILE_END                2
+#define FILE_SHARE_READ         0x00000001
+#define FILE_SHARE_WRITE        0x00000002
+#define GENERIC_READ            0x80000000
+#define GENERIC_WRITE           0x40000000
+#define INVALID_HANDLE_VALUE ((void*)(unsigned __int64)-1)
+#define OPEN_EXISTING           3
+#define PAGE_EXECUTE_READWRITE 0x40
+#define STD_OUTPUT_HANDLE ((unsigned long)-11)
+#define STD_ERROR_HANDLE  ((unsigned long)-12)
+
+__declspec(dllimport) BOOL CloseHandle(HANDLE hObject);
+__declspec(dllimport) HANDLE CreateFileA(const char* lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, void* lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
+__declspec(dllimport) __declspec(noreturn) void __stdcall ExitProcess(unsigned int uExitCode);
+__declspec(dllimport) int __stdcall FindClose(void* hFindFile);
 __declspec(dllimport) void* __stdcall FindFirstFileA(const char* lpFileName, WIN32_FIND_DATAA* lpFindFileData);
 __declspec(dllimport) int   __stdcall FindNextFileA(void* hFindFile, WIN32_FIND_DATAA* lpFindFileData);
-__declspec(dllimport) int   __stdcall FindClose(void* hFindFile);
-__declspec(dllimport) HANDLE __stdcall GetProcessHeap(void);
-
-__declspec(dllimport) void* __stdcall HeapAlloc(
-    HANDLE hHeap,
-    unsigned long dwFlags,
-    unsigned __int64 dwBytes
-);
-
-__declspec(dllimport) int __stdcall HeapFree(
-    HANDLE hHeap,
-    unsigned long dwFlags,
-    void* lpMem
-);
-
-__declspec(dllimport) int __stdcall ReadFile(void* hFile, void* lpBuffer, unsigned long nNumberOfBytesToRead, unsigned long* lpNumberOfBytesRead, void* lpOverlapped);
+__declspec(dllimport) BOOL __stdcall FlushFileBuffers(HANDLE hFile);
+__declspec(dllimport) int __stdcall FlushInstructionCache(void* hProcess, const void* lpBaseAddress, size_t dwSize);
+__declspec(dllimport) LPWSTR __stdcall GetCommandLineW(void);
+__declspec(dllimport) void* __stdcall GetCurrentProcess(void);
+__declspec(dllimport) HANDLE __stdcall GetCurrentThread(void);
+__declspec(dllimport) DWORD __stdcall GetExceptionCode(void);
 __declspec(dllimport) unsigned long __stdcall GetFileSize(void* hFile, unsigned long* lpFileSizeHigh);
+__declspec(dllimport) DWORD __stdcall GetLastError(void);
+__declspec(dllimport) HANDLE __stdcall GetProcessHeap(void);
+__declspec(dllimport) void* __stdcall GetStdHandle(unsigned long nStdHandle);
+__declspec(dllimport) void* __stdcall HeapAlloc(HANDLE hHeap, unsigned long dwFlags, unsigned __int64 dwBytes);
+__declspec(dllimport) int __stdcall HeapFree(HANDLE hHeap, unsigned long dwFlags, void* lpMem);
+__declspec(dllimport) int __stdcall ReadFile(void* hFile, void* lpBuffer, unsigned long nNumberOfBytesToRead, unsigned long* lpNumberOfBytesRead, void* lpOverlapped);
+__declspec(dllimport) DWORD __stdcall SetFilePointer(HANDLE hFile, LONG lDistanceToMove, LONG* lpDistanceToMoveHigh, DWORD dwMoveMethod);
+__declspec(dllimport) void* __stdcall VirtualAlloc(void* lpAddress, size_t dwSize, unsigned long flAllocationType, unsigned long flProtect);
+__declspec(dllimport) int __stdcall VirtualFree(void* lpAddress, size_t dwSize, unsigned long dwFreeType);
+__declspec(dllimport) BOOL __stdcall VirtualProtect(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, DWORD* lpflOldProtect);
+__declspec(dllimport) int __stdcall WideCharToMultiByte(unsigned int CodePage, unsigned long dwFlags, LPCWSTR lpWideCharStr, int cchWideChar, char* lpMultiByteStr, int cbMultiByte, const char* lpDefaultChar, int* lpUsedDefaultChar);
+__declspec(dllimport) BOOL __stdcall WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, DWORD* lpNumberOfBytesWritten, void* lpOverlapped);
 
-typedef void* LPVOID;
-typedef const void* LPCVOID;
-typedef size_t SIZE_T;
-__declspec(dllimport) void*          __stdcall VirtualAlloc(void* lpAddress, size_t dwSize, unsigned long flAllocationType, unsigned long flProtect);
-__declspec(dllimport) int            __stdcall VirtualFree(void* lpAddress, size_t dwSize, unsigned long dwFreeType);
-__declspec(dllimport) int            __stdcall FlushInstructionCache(void* hProcess, const void* lpBaseAddress, size_t dwSize);
-__declspec(dllimport) void*          __stdcall GetCurrentProcess(void);
-__declspec(dllimport) __declspec(noreturn) void __stdcall ExitProcess(unsigned int uExitCode);
 
-typedef unsigned short WCHAR;
-typedef WCHAR* LPWSTR;
-typedef const WCHAR* LPCWSTR;
+#define EXCEPTION_CONTINUE_SEARCH 0x00000000L
+#define EXCEPTION_ACCESS_VIOLATION      0xC0000005L
+#define EXCEPTION_DATATYPE_MISALIGNMENT 0x80000002L
+#define EXCEPTION_ARRAY_BOUNDS_EXCEEDED 0xC000008CL
+#define EXCEPTION_FLT_DIVIDE_BY_ZERO    0xC000008EL
+#define EXCEPTION_ILLEGAL_INSTRUCTION   0xC000001DL
+#define EXCEPTION_IN_PAGE_ERROR         0xC0000006L
+#define EXCEPTION_INT_DIVIDE_BY_ZERO    0xC0000094L
+#define EXCEPTION_PRIV_INSTRUCTION      0xC0000096L
+#define EXCEPTION_STACK_OVERFLOW        0xC00000FDL
+#define IMAGE_FILE_MACHINE_I386  0x014c
+#define IMAGE_FILE_MACHINE_AMD64 0x8664
 
-__declspec(dllimport)
-LPWSTR __stdcall GetCommandLineW(void);
+#define IMAGE_DOS_SIGNATURE                 0x5A4D      // 'MZ'
+#define IMAGE_NT_SIGNATURE                  0x00004550  // 'PE\0\0'
+#define IMAGE_NT_OPTIONAL_HDR64_MAGIC       0x020B      // PE32+ (64-bit)
+#define IMAGE_FILE_MACHINE_I386             0x014c
+#define IMAGE_FILE_MACHINE_AMD64            0x8664
+#define IMAGE_FILE_EXECUTABLE_IMAGE         0x0002
+#define IMAGE_FILE_LARGE_ADDRESS_AWARE      0x0020
+#define IMAGE_SUBSYSTEM_WINDOWS_CUI         3           // Console Application
+#define IMAGE_NUMBEROF_DIRECTORY_ENTRIES    16
 
-__declspec(dllimport)
-int __stdcall WideCharToMultiByte(
-    unsigned int CodePage,
-    unsigned long dwFlags,
-    LPCWSTR lpWideCharStr,
-    int cchWideChar,
-    char* lpMultiByteStr,
-    int cbMultiByte,
-    const char* lpDefaultChar,
-    int* lpUsedDefaultChar
+#define IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA       0x0020
+#define IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE          0x0100
+#define IMAGE_DLLCHARACTERISTICS_NX_COMPAT             0x0400
+#define IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE 0x8000
+
+#define IMAGE_SCN_CNT_CODE                  0x00000020
+#define IMAGE_SCN_MEM_EXECUTE               0x20000000
+#define IMAGE_SCN_MEM_READ                  0x40000000
+
+#pragma pack(push, 2)
+typedef struct _IMAGE_DOS_HEADER {
+    WORD  e_magic;      // Magic number ('MZ')
+    WORD  e_cblp;       // Bytes on last page of file
+    WORD  e_cp;         // Pages in file
+    WORD  e_crlc;       // Relocations
+    WORD  e_cparhdr;    // Size of header in paragraphs
+    WORD  e_minalloc;   // Minimum extra paragraphs needed
+    WORD  e_maxalloc;   // Maximum extra paragraphs needed
+    WORD  e_ss;         // Initial (relative) SS value
+    WORD  e_sp;         // Initial SP value
+    WORD  e_csum;       // Checksum
+    WORD  e_ip;         // Initial IP value
+    WORD  e_cs;         // Initial (relative) CS value
+    WORD  e_lfarlc;     // File address of relocation table
+    WORD  e_ovno;       // Overlay number
+    WORD  e_res[4];     // Reserved words
+    WORD  e_oemid;      // OEM identifier
+    WORD  e_oeminfo;    // OEM information
+    WORD  e_res2[10];   // Reserved words
+    LONG  e_lfanew;     // File address of new exe header
+} IMAGE_DOS_HEADER, *PIMAGE_DOS_HEADER;
+#pragma pack(pop)
+
+typedef struct _IMAGE_DATA_DIRECTORY {
+    DWORD VirtualAddress;
+    DWORD Size;
+} IMAGE_DATA_DIRECTORY, *PIMAGE_DATA_DIRECTORY;
+
+typedef struct _IMAGE_FILE_HEADER {
+    WORD  Machine;
+    WORD  NumberOfSections;
+    DWORD TimeDateStamp;
+    DWORD PointerToSymbolTable;
+    DWORD NumberOfSymbols;
+    WORD  SizeOfOptionalHeader;
+    WORD  Characteristics;
+} IMAGE_FILE_HEADER;
+
+typedef struct _IMAGE_OPTIONAL_HEADER64 {
+    WORD                 Magic;
+    BYTE                 MajorLinkerVersion;
+    BYTE                 MinorLinkerVersion;
+    DWORD                SizeOfCode;
+    DWORD                SizeOfInitializedData;
+    DWORD                SizeOfUninitializedData;
+    DWORD                AddressOfEntryPoint;
+    DWORD                BaseOfCode;
+    DWORD64              ImageBase;
+    DWORD                SectionAlignment;
+    DWORD                FileAlignment;
+    WORD                 MajorOperatingSystemVersion;
+    WORD                 MinorOperatingSystemVersion;
+    WORD                 MajorImageVersion;
+    WORD                 MinorImageVersion;
+    WORD                 MajorSubsystemVersion;
+    WORD                 MinorSubsystemVersion;
+    DWORD                Win32VersionValue;
+    DWORD                SizeOfImage;
+    DWORD                SizeOfHeaders;
+    DWORD                CheckSum;
+    WORD                 Subsystem;
+    WORD                 DllCharacteristics;
+    DWORD64              SizeOfStackReserve;
+    DWORD64              SizeOfStackCommit;
+    DWORD64              SizeOfHeapReserve;
+    DWORD64              SizeOfHeapCommit;
+    DWORD                LoaderFlags;
+    DWORD                NumberOfRvaAndSizes;
+    IMAGE_DATA_DIRECTORY DataDirectory[IMAGE_NUMBEROF_DIRECTORY_ENTRIES];
+} IMAGE_OPTIONAL_HEADER64, *PIMAGE_OPTIONAL_HEADER64;
+
+typedef struct _IMAGE_NT_HEADERS64 {
+    DWORD                   Signature;
+    IMAGE_FILE_HEADER       FileHeader;
+    IMAGE_OPTIONAL_HEADER64 OptionalHeader;
+} IMAGE_NT_HEADERS64, *PIMAGE_NT_HEADERS64;
+
+typedef struct _IMAGE_SECTION_HEADER {
+    BYTE  Name[8];
+    union {
+        DWORD PhysicalAddress;
+        DWORD VirtualSize;
+    } Misc;
+    DWORD VirtualAddress;
+    DWORD SizeOfRawData;
+    DWORD PointerToRawData;
+    DWORD PointerToRelocations;
+    DWORD PointerToLinenumbers;
+    WORD  NumberOfRelocations;
+    WORD  NumberOfLinenumbers;
+    DWORD Characteristics;
+} IMAGE_SECTION_HEADER, *PIMAGE_SECTION_HEADER;
+
+typedef enum {
+    AddrMode1616,
+    AddrMode1632,
+    AddrModeReal,
+    AddrModeFlat
+} ADDRESS_MODE;
+
+typedef struct _ADDRESS64 {
+    DWORD64 Offset;
+    unsigned short Segment;
+    ADDRESS_MODE Mode;
+} ADDRESS64;
+
+typedef struct _KDHELP64 {
+    DWORD64 Thread;
+    DWORD   ThCallbackStack;
+    DWORD   ThCallbackBStore;
+    DWORD   NextEvent;
+    DWORD   FramePointer;
+    DWORD64 KiCallUserMode;
+    DWORD64 KeUserCallbackDispatcher;
+    DWORD64 SystemRangeStart;
+    DWORD64 KiUserExceptionDispatcher;
+    DWORD64 StackBase;
+    DWORD64 StackLimit;
+    DWORD64 Reserved[19];
+} KDHELP64;
+
+typedef struct _STACKFRAME64 {
+    ADDRESS64 AddrPC;
+    ADDRESS64 AddrReturn;
+    ADDRESS64 AddrFrame;
+    ADDRESS64 AddrStack;
+    ADDRESS64 AddrBStore;
+    void*     FuncTableEntry;
+    DWORD64   Params[4];
+    BOOL      Far;
+    BOOL      Virtual;
+    DWORD64   Reserved[3];
+    KDHELP64  KdHelp;
+} STACKFRAME64, *LPSTACKFRAME64;
+
+typedef struct _SYMBOL_INFO {
+    ULONG SizeOfStruct;
+    ULONG TypeIndex;
+    ULONG64 Reserved[2];
+    ULONG Index;
+    ULONG Size;
+    ULONG64 ModuleBase;
+    ULONG Flags;
+    ULONG64 Value;
+    ULONG64 Address;
+    ULONG Register;
+    ULONG Scope;
+    ULONG Tag;
+    ULONG NameLen;
+    ULONG MaxNameLen;
+    char Name[1];
+} SYMBOL_INFO, *PSYMBOL_INFO;
+
+typedef struct _IMAGEHLP_LINE64 {
+    DWORD SizeOfStruct;
+    void* Key;
+    DWORD LineNumber;
+    char* FileName;
+    DWORD64 Address;
+} IMAGEHLP_LINE64, *PIMAGEHLP_LINE64;
+
+typedef struct _EXCEPTION_RECORD {
+    DWORD ExceptionCode;
+    DWORD ExceptionFlags;
+    struct _EXCEPTION_RECORD* ExceptionRecord;
+    void* ExceptionAddress;
+    DWORD NumberParameters;
+    ULONG_PTR ExceptionInformation[15];
+} EXCEPTION_RECORD, *PEXCEPTION_RECORD;
+
+#ifndef DECLSPEC_ALIGN
+    #if defined(_MSC_VER)
+        #define DECLSPEC_ALIGN(x) __declspec(align(x))
+    #else
+        #define DECLSPEC_ALIGN(x)
+    #endif
+#endif
+
+#if defined(_M_X64)
+    typedef struct DECLSPEC_ALIGN(16) _M128A {
+        unsigned long long Low;
+        long long High;
+    } M128A;
+
+    typedef struct DECLSPEC_ALIGN(16) _CONTEXT {
+        DWORD64 P1Home;
+        DWORD64 P2Home;
+        DWORD64 P3Home;
+        DWORD64 P4Home;
+        DWORD64 P5Home;
+        DWORD64 P6Home;
+        DWORD ContextFlags;
+        DWORD MxCsr;
+        unsigned short SegCs;
+        unsigned short SegDs;
+        unsigned short SegEs;
+        unsigned short SegFs;
+        unsigned short SegGs;
+        unsigned short SegSs;
+        DWORD EFlags;
+        DWORD64 Dr0;
+        DWORD64 Dr1;
+        DWORD64 Dr2;
+        DWORD64 Dr3;
+        DWORD64 Dr6;
+        DWORD64 Dr7;
+        DWORD64 Rax;
+        DWORD64 Rcx;
+        DWORD64 Rdx;
+        DWORD64 Rbx;
+        DWORD64 Rsp;
+        DWORD64 Rbp;
+        DWORD64 RSI;
+        DWORD64 Rdi;
+        DWORD64 R8;
+        DWORD64 R9;
+        DWORD64 R10;
+        DWORD64 R11;
+        DWORD64 R12;
+        DWORD64 R13;
+        DWORD64 R14;
+        DWORD64 R15;
+        DWORD64 Rip;
+    } CONTEXT, *PCONTEXT;
+#elif defined(_M_IX86)
+    typedef struct _FLOATING_SAVE_AREA {
+        DWORD ControlWord;
+        DWORD StatusWord;
+        DWORD TagWord;
+        DWORD ErrorOffset;
+        DWORD ErrorSelector;
+        DWORD DataOffset;
+        DWORD DataSelector;
+        unsigned char RegisterArea[80];
+        DWORD Cr0NpxState;
+    } FLOATING_SAVE_AREA;
+
+    typedef struct _CONTEXT {
+        DWORD ContextFlags;
+        DWORD Dr0;
+        DWORD Dr1;
+        DWORD Dr2;
+        DWORD Dr3;
+        DWORD Dr6;
+        DWORD Dr7;
+        FLOATING_SAVE_AREA FloatSave;
+        DWORD SegGs;
+        DWORD SegFs;
+        DWORD SegEs;
+        DWORD SegDs;
+        DWORD Edi;
+        DWORD Esi;
+        DWORD Ebx;
+        DWORD Edx;
+        DWORD Ecx;
+        DWORD Eax;
+        DWORD Ebp;
+        DWORD Eip;
+        DWORD SegCs;
+        DWORD EFlags;
+        DWORD Esp;
+        DWORD SegSs;
+    } CONTEXT, *PCONTEXT;
+#else
+    #error "Unsupported target architecture for custom CONTEXT struct"
+#endif
+
+typedef struct _EXCEPTION_POINTERS {
+    PEXCEPTION_RECORD ExceptionRecord;
+    PCONTEXT ContextRecord;
+} EXCEPTION_POINTERS, *PEXCEPTION_POINTERS;
+
+typedef LONG (__stdcall *PREAD_PROCESS_MEMORY_ROUTINE64)(
+    HANDLE hProcess,
+    DWORD64 qwBaseAddress,
+    void* lpBuffer,
+    DWORD nSize,
+    DWORD* lpNumberOfBytesRead
 );
+
+typedef void* (__stdcall *PFUNCTION_TABLE_ACCESS_ROUTINE64)(HANDLE hProcess, DWORD64 AddrBase);
+typedef DWORD64 (__stdcall *PGET_MODULE_BASE_ROUTINE64)(HANDLE hProcess, DWORD64 Address);
+typedef DWORD64 (__stdcall *PTRANSLATE_ADDRESS_ROUTINE64)(HANDLE hProcess, HANDLE hThread, ADDRESS64* lpaddr);
+
+
+#ifndef CALLBACK
+    #define CALLBACK __stdcall
+#endif
+
+typedef LONG (CALLBACK *PVECTORED_EXCEPTION_HANDLER)(PEXCEPTION_POINTERS ExceptionInfo);
+__declspec(dllimport) void* __stdcall AddVectoredExceptionHandler(ULONG First, PVECTORED_EXCEPTION_HANDLER Handler);
+__declspec(dllimport) DWORD __stdcall SymSetOptions(DWORD SymOptions);
+__declspec(dllimport) BOOL __stdcall SymInitialize(HANDLE hProcess, const char* UserSearchPath, BOOL fInvadeProcess);
+__declspec(dllimport) BOOL __stdcall StackWalk64(
+    DWORD MachineType,
+    HANDLE hProcess,
+    HANDLE hThread,
+    LPSTACKFRAME64 StackFrame,
+    void* ContextRecord,
+    PREAD_PROCESS_MEMORY_ROUTINE64 ReadMemoryRoutine,
+    PFUNCTION_TABLE_ACCESS_ROUTINE64 FunctionTableAccessRoutine,
+    PGET_MODULE_BASE_ROUTINE64 GetModuleBaseRoutine,
+    PTRANSLATE_ADDRESS_ROUTINE64 TranslateAddress
+);
+__declspec(dllimport) void* __stdcall SymFunctionTableAccess64(HANDLE hProcess, DWORD64 AddrBase);
+__declspec(dllimport) DWORD64 __stdcall SymGetModuleBase64(HANDLE hProcess, DWORD64 Address);
+__declspec(dllimport) BOOL __stdcall SymFromAddr(HANDLE hProcess, DWORD64 Address, DWORD64* Displacement, PSYMBOL_INFO Symbol);
+
+#ifndef SYMOPT_LOAD_LINES
+    #define SYMOPT_LOAD_LINES 0x00000010
+#endif
+#ifndef SYMOPT_UNDNAME
+    #define SYMOPT_UNDNAME    0x00000002
+#endif
+
+__declspec(dllimport) BOOL __stdcall SymGetLineFromAddr64(HANDLE hProcess, DWORD64 dwAddr, DWORD* pdwDisplacement, PIMAGEHLP_LINE64 Line);
+
+#define _CRTDBG_ALLOC_MEM_DF  0x01
+#define _CRTDBG_CHECK_ALWAYS_DF 0x04
+
+int __cdecl _CrtSetDbgFlag(int _NewFlag);
+
+typedef void* HMODULE;
+typedef void* FARPROC;
+
+__declspec(dllimport) HMODULE __stdcall GetModuleHandleA(const char* lpModuleName);
+__declspec(dllimport) FARPROC __stdcall GetProcAddress(HMODULE hModule, const char* lpProcName);
+__declspec(dllimport) BOOL __stdcall AllocConsole(void);
+
+typedef struct _SECURITY_ATTRIBUTES {
+    DWORD nLength;
+    LPVOID lpSecurityDescriptor;
+    BOOL bInheritHandle;
+} SECURITY_ATTRIBUTES, *PSECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
+
+typedef struct _STARTUPINFOA {
+    DWORD   cb;
+    char*   lpReserved;
+    char*   lpDesktop;
+    char*   lpTitle;
+    DWORD   dwX;
+    DWORD   dwY;
+    DWORD   dwXSize;
+    DWORD   dwYSize;
+    DWORD   dwXCountChars;
+    DWORD   dwYCountChars;
+    DWORD   dwFillAttribute;
+    DWORD   dwFlags;
+    WORD    wShowWindow;
+    WORD    cbReserved2;
+    BYTE*   lpReserved2;
+    HANDLE  hStdInput;
+    HANDLE  hStdOutput;
+    HANDLE  hStdError;
+} STARTUPINFOA, *LPSTARTUPINFOA;
+
+typedef struct _PROCESS_INFORMATION {
+    HANDLE hProcess;
+    HANDLE hThread;
+    DWORD  dwProcessId;
+    DWORD  dwThreadId;
+} PROCESS_INFORMATION, *PPROCESS_INFORMATION, *LPPROCESS_INFORMATION;
+
+__declspec(dllimport) BOOL __stdcall CreateProcessA(
+    const char*           lpApplicationName,
+    char*                 lpCommandLine,
+    LPSECURITY_ATTRIBUTES lpProcessAttributes,
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    BOOL                  bInheritHandles,
+    DWORD                 dwCreationFlags,
+    LPVOID                lpEnvironment,
+    const char*           lpCurrentDirectory,
+    LPSTARTUPINFOA        lpStartupInfo,
+    LPPROCESS_INFORMATION lpProcessInformation
+);
+
+__declspec(dllimport) void __stdcall RtlZeroMemory(void* Destination, SIZE_T Length);
+#define ZeroMemory(Destination, Length) RtlZeroMemory((Destination), (Length))
+
+#define INFINITE            0xFFFFFFFF  // Infinite timeout value for Wait functions
+#define CREATE_NEW_CONSOLE  0x00000010  // Process creation flag to spawn a new console window
+#define CP_UTF8 65001
+__declspec(dllimport) DWORD __stdcall WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds);

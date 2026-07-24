@@ -1,5 +1,3 @@
-
-
 bool compile_file(const char* path, ASTNode** out_ast_root, Arena* arena)
 {
     void* in = ildz_open_file_read(path);
@@ -21,23 +19,15 @@ bool compile_file(const char* path, ASTNode** out_ast_root, Arena* arena)
         return false;
     }
     *out_ast_root = root;
-    loginf("Successfully parsed into AST memory layer: ", path);
+    loginfv("Successfully parsed into AST memory layer: ", path);
     return true;
-}
-
-int has_ildz_extension(const char* name)
-{
-    const char* ext = string_find_last_occurrence(name, '.');
-    return ext && string_equal(ext, ".ildz");
 }
 
 #define MAX_FOUND_FILES 4096
 #define MAX_FILE_NAME 260
-
 static char g_found_files[MAX_FOUND_FILES][MAX_FILE_NAME];
 static int g_found_file_count = 0;
 
-// Placeholder cache logic
 bool compiler_cache_has_file(const char* path)
 {
     // TODO:
@@ -55,7 +45,6 @@ bool compiler_cache_file_modified(const char* path, WIN32_FIND_DATAA* find_data)
     return true;
 }
 
-
 void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* arena)
 {
     WIN32_FIND_DATAA find_data;
@@ -68,7 +57,6 @@ void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* 
         ExitProcess(1);
         return;
     }
-
     do
     {
         if (find_data.cFileName[0] == '.' &&
@@ -77,18 +65,17 @@ void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* 
         {
             continue;
         }
-
         char full_path[MAX_PATH];
         path_join(full_path, sizeof(full_path), dir_path, find_data.cFileName);
 
         if (find_data.dwFileAttributes & 0x10)
         {
-            loginf("Entering subdirectory: ", full_path);
+            loginfv("Entering subdirectory: ", full_path);
             compile_directory_recursive(full_path, false, arena);
         }
         else
         {
-            if (has_ildz_extension(find_data.cFileName))
+            if (string_has_extension(find_data.cFileName, ".ildz"))
             {
                 // Store filename for final report
                 if (g_found_file_count < MAX_FOUND_FILES)
@@ -103,32 +90,25 @@ void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* 
 
                     g_found_file_count++;
                 }
-                loginf("ILDZ source file detected: ", find_data.cFileName);
-
-                bool needs_compile = true;
+                loginfv(".ildz source file detected: ", find_data.cFileName);
                 if (compiler_cache_has_file(full_path))
                 {
-                    loginf("Found cached compilation entry: ", find_data.cFileName);
-
+                    loginfv("Found cached compilation entry: ", find_data.cFileName);
                     if (!compiler_cache_file_modified(full_path, &find_data))
                     {
-                        loginf("File unchanged. Skipping compile: ", find_data.cFileName);
+                        loginfv("File unchanged. Skipping compile: ", find_data.cFileName);
                         continue;
                     }
-
-                    loginf("File modified. Recompiling: ", find_data.cFileName);
+                    loginfv("File modified. Recompiling: ", find_data.cFileName);
                 }
                 else
                 {
-                    loginf("No cache entry. Compiling: ", find_data.cFileName);
+                    loginfv("No cache entry. Compiling: ", find_data.cFileName);
                 }
-
-
                 ASTNode* file_ast = NULL;
-
                 if (compile_file(full_path, &file_ast, arena))
                 {
-                    loginf("Compilation successful: ", find_data.cFileName);
+                    loginfv("Compilation successful: ", find_data.cFileName);
 
                     if (g_ast_root_count < MAX_COMPILATION_UNITS)
                     {
@@ -149,15 +129,18 @@ void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* 
         }
     } while (FindNextFileA(handle, &find_data));
     FindClose(handle);
-    loginf("Finished scanning directory: ", dir_path);
+    loginfv("Finished scanning directory: ", dir_path);
     if (g_found_file_count > 0)
     {
-        loginf("Files found:");
-
+        char buffer[8192];
+        buffer[0] = '\0';
+        string_copy(buffer, "Files found:");
         for (int i = 0; i < g_found_file_count; i++)
         {
-            loginf(" - ", g_found_files[i]);
+            string_concatenate(buffer, " - ");
+            string_concatenate(buffer, g_found_files[i]);
         }
+        loginfv(buffer);
     }
     else
     {
@@ -167,245 +150,67 @@ void compile_directory_recursive(const char* dir_path, bool is_root_dir, Arena* 
 }
 
 typedef int64_t (*JitFunction)(void);
-
-void get_parent_directory(char* path) {
-    int len = 0;
-    while (path[len] != '\0') len++;
-    
-    // Walk backward from the end to find the last trailing slash
-    for (int i = len - 1; i >= 0; i--) {
-        if (path[i] == '\\' || path[i] == '/') {
-            path[i] = '\0'; // Truncate the string at the slash boundary
-            return;
-        }
-    }
-    // If no slash is found, default to the local directory execution context
-    path[0] = '.';
-    path[1] = '\0';
-}
-
-void parse_command_line_args(char* root_prog_path, int root_prog_path_size)
-{
-    bool found_target = false;
-    LPWSTR cmd = GetCommandLineW();
-
-    char debug_cmd[4096] = {0};
-    WideCharToMultiByte(
-        65001,
-        0,
-        cmd,
-        -1,
-        debug_cmd,
-        sizeof(debug_cmd),
-        NULL,
-        NULL
-    );
-
-    loginf("Raw command line: ", debug_cmd);
-
-    // Skip executable name
-    if (*cmd == L'"') {
-        cmd++;
-        while (*cmd && *cmd != L'"')
-            cmd++;
-        if (*cmd == L'"')
-            cmd++;
-    } else {
-        while (*cmd && *cmd != L' ' && *cmd != L'\t')
-            cmd++;
-    }
-
-    loginf("After executable skip");
-
-    while (*cmd == L' ' || *cmd == L'\t')
-        cmd++;
-
-    while (*cmd)
-    {
-        char debug_current[1024] = {0};
-        WideCharToMultiByte(
-            65001,
-            0,
-            cmd,
-            -1,
-            debug_current,
-            sizeof(debug_current),
-            NULL,
-            NULL
-        );
-
-        loginf("Current argument pointer: ", debug_current);
-
-        // Skip whitespace
-        while (*cmd == L' ' || *cmd == L'\t')
-            cmd++;
-
-        if (*cmd == 0)
-            break;
-
-        if (*cmd == L'-')
-        {
-            cmd++;
-
-            loginf("Found flag");
-
-            if (*cmd == L'v')
-            {
-                g_compiler_log_verbose = true;
-                loginf("Verbose flag enabled");
-                cmd++;
-                continue;
-            }
-        }
-
-        loginf("Found target file");
-
-        // First non-flag argument is the source file
-        if (*cmd == L'"')
-        {
-            cmd++; // skip opening quote
-
-            LPWSTR start = cmd;
-
-            while (*cmd && *cmd != L'"')
-                cmd++;
-
-            int length = (int)(cmd - start);
-
-            WideCharToMultiByte(
-                65001,
-                0,
-                start,
-                length,
-                root_prog_path,
-                root_prog_path_size,
-                NULL,
-                NULL
-            );
-
-            root_prog_path[length] = '\0';
-
-            if (*cmd == L'"')
-                cmd++; // skip closing quote
-        }
-        else
-        {
-            int converted_bytes = WideCharToMultiByte(
-                65001,
-                0,
-                cmd,
-                -1,
-                root_prog_path,
-                root_prog_path_size,
-                NULL,
-                NULL
-            );
-
-            if (converted_bytes <= 0)
-            {
-                logerr("Fatal Process Error: Failed to convert Unicode path.");
-                ExitProcess(1);
-            }
-        }
-
-        loginf("Resolved target path: ", root_prog_path);
-        found_target = true;
-
-        int len = 0;
-        while (root_prog_path[len])
-            len++;
-
-        if (len > 0 && root_prog_path[len - 1] == '"')
-            root_prog_path[len - 1] = '\0';
-
-        // continue parsing remaining args
-        while (*cmd == L' ' || *cmd == L'\t')
-            cmd++;
-    }
-
-    if (!found_target)
-    {
-        logerr("Fatal Process Error: No target file path argument found.");
-        ExitProcess(1);
-    }
-}
+#define _CrtSetDbgFlag(x) ((void)0)
+#include "ic_cmd_line.def"
+#include "ic_veh.def"
 
 void mainCRTStartup(void) {
+    AddVectoredExceptionHandler(1, VectoredHandler);
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF);
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+    SymInitialize(process, "srv*C:\\symbols*https://msdl.microsoft.com/download/symbols", TRUE);
     log_set_output(GetStdHandle((unsigned long)-11));
-
     char root_prog_path[MAX_PATH] = {0};
     parse_command_line_args(root_prog_path, MAX_PATH);
-    loginf("[CommandLine] Target file path successfully resolved: ", root_prog_path);
+    loginfv("[CommandLine] Target file path successfully resolved: ", root_prog_path);
+    if (g_ic_log_verbose) loginfv("Verbose logging enabled.");
 
-    if (g_compiler_log_verbose)
-        loginf("Verbose logging enabled.");
-
-    Arena compiler_arena = {0};
-    compiler_arena.capacity = 16 * 1024 * 1024; // 16 MB global workspace pool
-    compiler_arena.memory = HeapAlloc(GetProcessHeap(), 0, compiler_arena.capacity);
-    if (!compiler_arena.memory) {
+    g_compiler_arena.capacity = 16 * 1024 * 1024; // 16 MB global workspace pool
+    g_compiler_arena.memory = HeapAlloc(GetProcessHeap(), 0, g_compiler_arena.capacity);
+    if (!g_compiler_arena.memory) {
         logerr("Fatal Error: Failed to allocate global compiler arena pool.");
         ExitProcess(1);
     }
-    
-    // Copy out the path to isolate the parent folder cleanly
-    int i = 0;
-    while (root_prog_path[i] != '\0' && i < (MAX_PATH - 1)) {
-        g_project_root_path[i] = root_prog_path[i];
-        i++;
-    }
-    g_project_root_path[i] = '\0';
-    
-    // Transform file target path straight into its parent container folder directory string
-    get_parent_directory(g_project_root_path);
-    
-    loginf("Scanning targeted working directory scope root: ", g_project_root_path);
-    compile_directory_recursive(g_project_root_path, true, &compiler_arena);
 
-    loginf("Running multi-pass symbol resolution logic...");
+    loginfv("Scanning targeted working directory scope root: ", g_project_root_path);
+    compile_directory_recursive(g_project_root_path, true, &g_compiler_arena);
+    loginf("Running multi-pass symbol resolution logic.");
     if (!resolve_unknown_symbols()) ExitProcess(0);
 
     execute_global_dead_code_elimination();
 
-    loginf("Lowering AST representations down to Linear Three-Address IR...");
-
+    loginf("Lowering AST representations down to IR.");
     IRProgram ir_program;
-    ir_init(&ir_program, &compiler_arena);
-
+    ir_init(&ir_program, &g_compiler_arena);
     IRLowerContext ir_ctx = {
         .prog = &ir_program,
-        .arena = &compiler_arena,
-        .variable_count = 0
+        .arena = &g_compiler_arena,
+        .variables = {0}
     };
-
     for (u32 i = 0; i < g_ast_root_count; i++) {
         if (g_ast_roots[i] != NULL) {
-            lower_ast_to_ir(&ir_ctx, g_ast_roots[i]);
+            loginfrgb("Lowering root ", i);
+            ir_lower_ast(&ir_ctx, g_ast_roots[i]);
         }
     }
-
-    // Step 1: Initialize the execution-ready JIT stream buffer
-    loginf("Allocating executable kernel space for machine bytecode emission...");
+    loginf("Allocating executable kernel space for machine bytecode emission.");
     JitBuffer jit_buf;
     if (!jit_buffer_init(&jit_buf, 65536)) { // Request 64KB engine execution room
         ExitProcess(1);
     }
-
-    // Step 2: Run the pure machine code encoder directly into the JIT structure
     loginf("Encoding linear IR instructions down to raw x86-64 machine code...");
     x86_bytecode_gen(&ir_program, &jit_buf);
-    
-    loginf("After bytecode gen...");
-    // Step 3: Synchronize CPU instruction cache caches before jumping in!
-    unsigned long old_protect;
-    // Explicitly pass the full allocation capacity since we are setting page execution bounds
-    VirtualProtect(jit_buf.bytes, jit_buf.capacity, 0x40, &old_protect); // 0x40 = PAGE_EXECUTE_READWRITE
-    FlushInstructionCache(GetCurrentProcess(), jit_buf.bytes, jit_buf.capacity);
-
-    // Step 4: Call the generated function pointer immediately
-    loginf("Jumping directly into newly generated runtime machine code...");
-    JitFunction execute_code = (JitFunction)jit_buf.bytes;
-    loginf(execute_code());
+    loginfv("After bytecode gen.");
+    if (g_ic_build_mode == IC_BUILD_MODE_JIT) {
+        run_generated_bytecode(&jit_buf);
+        loginfrgb("After bytecode run.");
+    } 
+    else if (g_ic_build_mode == IC_BUILD_MODE_EXE) {
+        write_pe_executable(g_ic_program_path, jit_buf.bytes, jit_buf.size);
+        loginfrgb("After executable writing.");
+        if (g_build_mode_exe_launch_after_build) process_launch(g_ic_program_path);
+    }
     jit_buffer_free(&jit_buf);
     ExitProcess(0);
 }

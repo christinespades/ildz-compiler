@@ -1,0 +1,79 @@
+/*
+Opcode  Meaning
+IMM dest = imm
+ASSIGN  dest = a
+ADD dest = a + b
+SUB dest = a - b
+MUL dest = a * b
+DIV dest = a / b (signed)
+NEG dest = -a
+NOT dest = ~a
+CMP_EQ  dest = (a == b)
+CMP_NE  dest = (a != b)
+CMP_LT  dest = (a < b)
+CMP_LE  dest = (a <= b)
+CMP_GT  dest = (a > b)
+CMP_GE  dest = (a >= b)
+LOAD    dest = *(u64*)a
+STORE   *(u64*)a = b
+LABEL   define label
+JMP goto label
+JMP_IF_ZERO if a == 0 goto label
+CALL    dest = call a(b,c,...)
+RETURN  return a
+
+R15 Runtime context (always live)
+R14 Heap / arena pointer
+R13 Thread state
+R12 Reserved
+RAX Return value / scratch
+RCX,RDX,R8,R9,R10,R11   Scratch / argument passing
+RBX,RBP,RSI,RDI Callee-saved if needed
+*/
+typedef struct
+{
+    u8* ptr;
+    JitBuffer* buf;
+} X86Emitter;
+typedef enum
+{
+    X86_CC_E  = 0x4, // equal
+    X86_CC_NE = 0x5, // not equal
+    X86_CC_L  = 0xC, // signed less
+    X86_CC_LE = 0xE, // signed less/equal
+    X86_CC_G  = 0xF, // signed greater
+    X86_CC_GE = 0xD  // signed greater/equal
+} X86Condition;
+static inline void x86_emit8(X86Emitter* e, u8 v) {
+    *e->ptr++ = v;
+    e->buf->size++;
+}
+static inline void x86_emit32(X86Emitter* e, u32 v) {
+    *(u32*)e->ptr = v;
+    e->ptr += 4;
+    e->buf->size += 4;
+}
+static inline void x86_emit64(X86Emitter* e, u64 v) {
+    *(u64*)e->ptr = v;
+    e->ptr += 8;
+    e->buf->size += 8;
+}
+typedef enum {
+    X86_RAX = 0,
+    X86_RCX = 1,
+    X86_RDX = 2,
+    X86_RBX = 3,
+    X86_RSP = 4,
+    X86_RBP = 5,
+    X86_RSI = 6,
+    X86_RDI = 7,
+
+    X86_R8  = 8,
+    X86_R9  = 9,
+    X86_R10 = 10,
+    X86_R11 = 11,
+    X86_R12 = 12,
+    X86_R13 = 13,
+    X86_R14 = 14,
+    X86_R15 = 15
+} X86Register;

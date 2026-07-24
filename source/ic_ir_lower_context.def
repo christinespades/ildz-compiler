@@ -1,0 +1,6 @@
+typedef struct
+{
+    IRProgram* prog;
+    Arena* arena;
+    SSAState variables;
+} IRLowerContext;

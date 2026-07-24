@@ -1,0 +1,6 @@
+
+typedef struct
+{
+    u32 pred;
+    u32 value;
+} PhiInput;

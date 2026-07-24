@@ -1,4 +1,3 @@
-
 // 1. Local Variable Declaration Handler
 static bool handle_local_var_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx, StringView type_sv) {
     loginfline("Processing local variable declaration with type: ", type_sv, " on ");
@@ -8,25 +7,14 @@ static bool handle_local_var_decl(unsigned long bytes_read, const char* buffer, 
         ctx->cursor++;
     }
 
-    // 2. Parse variable name token directly (parse_identifier_token skips leading spaces and validates length)
+    // 2. Parse variable name token directly
     StringView var_name;
     if (!parse_identifier_token(bytes_read, buffer, ctx, &var_name, true)) {
         logerrline("Failed to parse valid variable identifier after type ", type_sv);
         return false;
     }
 
-    // 3. Register into local symbols table
-    if (ctx->local_symbol_count < MAX_LOCAL_SYMBOLS) {
-        LocalSymbol* local = &ctx->local_symbols[ctx->local_symbol_count++];
-        local->name = var_name.data;
-        local->length = var_name.length;
-        local->type_sv.data = type_sv.data;     // Save type pointer
-        local->type_sv.length = type_sv.length; // Save type length
-        local->kind = VAR_LOCAL_VAR;
-    } else {
-        logerrline("Compiler Error: Local symbol table overflow max capacity.");
-        return false;
-    }
+    if (!register_local_symbol(ctx, var_name, type_sv, VAR_LOCAL_VAR)) return false;
 
     // 4. Allocate AST node for local declaration
     ASTNode* var_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
@@ -35,11 +23,20 @@ static bool handle_local_var_decl(unsigned long bytes_read, const char* buffer, 
     var_node->children = NULL;
     var_node->next = NULL;
 
-    // 5. Attach to statement chain
-    if (!root_prog->children) {
-        root_prog->children = var_node;
-    } else {
+    // 5. Attach to current function statement chain safely
+    ASTNode* parent_scope = ctx->current_fn_node ? ctx->current_fn_node : root_prog;
+
+    if (!parent_scope->children) {
+        parent_scope->children = var_node;
+    } else if (ctx->last_stmt) {
         ctx->last_stmt->next = var_node;
+    } else {
+        // Fallback: search for tail of children if last_stmt wasn't tracked
+        ASTNode* curr = parent_scope->children;
+        while (curr->next != NULL) {
+            curr = curr->next;
+        }
+        curr->next = var_node;
     }
     ctx->last_stmt = var_node;
 
@@ -52,7 +49,7 @@ static bool handle_local_var_decl(unsigned long bytes_read, const char* buffer, 
     if (str_match_keyword(buffer, ctx->cursor, bytes_read, "eq", 2)) {
         ctx->cursor += 2; // skip "eq"
         loginfline("Found assignment 'eq' initialization for local variable: ", var_name);
-        return handle_assignment_expression(bytes_read, buffer, arena, ctx, var_name, OP_ASSIGN);
+        return handle_assignment_expression(bytes_read, buffer, arena, ctx, var_name, OP_PLAIN_ASSIGNMENT);
     }
 
     // 8. Validate line termination if no assignment operator was present

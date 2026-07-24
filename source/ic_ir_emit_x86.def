@@ -1,0 +1,164 @@
+static void x86_add_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x01);
+    x86_emit8(e, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+// AND dst, src  (e.g., AND RAX, RCX)
+static void x86_and_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e, 0x48); // REX.W prefix for 64-bit
+    x86_emit8(e, 0x21); // Opcode: AND r/m64, r64
+    x86_emit8(e, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+/*Internal convention:
+R15 = Runtime*
+R10 = arg1
+R11 = arg2
+RAX = return
+
+For calling a C function:
+RCX = Runtime*
+RDX = arg1*/
+static void x86_call_reg(X86Emitter* e, X86Register reg) {
+    x86_emit8(e,0xFF);
+    x86_emit8(e,0xD0 | (reg & 7));
+}
+static void x86_cmp_r64_r64(X86Emitter* e, X86Register a, X86Register b) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x39);
+    x86_emit8(e, 0xC0 | ((b & 7) << 3) | (a & 7));
+}
+/*The generated x86 is:
+mov rax,[rbp-a]
+mov rcx,[rbp-b]
+cmp rax,rcx
+sete al        ; or setne/setl/etc
+movzx rax,al
+mov [rbp-dest],rax
+
+which gives our IR:
+dest = (a == b)
+dest = (a != b)
+dest = (a < b)
+dest = (a <= b)
+dest = (a > b)
+dest = (a >= b)*/
+//x86-64 signed division uses: RDX:RAX / operan, RAX = quotien, RDX = remainder
+static void x86_cqo(X86Emitter* e) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x99);
+}
+static void x86_idiv_r64(X86Emitter* e, X86Register reg) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0xF7);
+    x86_emit8(e, 0xF8 | (reg & 7));
+}
+static void x86_imul_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x0F);
+    x86_emit8(e,0xAF);
+    x86_emit8(e, 0xC0 | ((dst & 7)<<3) | (src & 7));
+}
+static u32 x86_emit_jcc_placeholder(X86Emitter* e, X86Condition cc) {
+    x86_emit8(e,0x0F);
+    x86_emit8(e,0x80 + cc);
+    u32 patch = e->buf->size;
+    x86_emit32(e,0);
+    return patch;
+}
+static u32 x86_emit_jmp_placeholder(X86Emitter* e) {
+    x86_emit8(e,0xE9);
+    u32 patch = e->buf->size;
+    x86_emit32(e,0);
+    return patch;
+}
+static void x86_mov_r64_imm64(X86Emitter* e, X86Register reg, u64 value) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0xB8 + (reg & 7));
+    x86_emit64(e, value);
+}
+static void x86_mov_r64_m64(X86Emitter* e, X86Register reg, i32 offset) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x8B);
+    x86_emit8(e, 0x85 | ((reg & 7) << 3));
+    x86_emit32(e, -offset);
+}
+// MOV dst, src (64-bit register to register)
+static void x86_mov_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e, 0x48); // REX.W prefix
+    x86_emit8(e, 0x89); // Opcode MOV r/m64, r64
+    x86_emit8(e, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+static void x86_mov_m64_r64(X86Emitter* e, i32 offset, X86Register reg) {
+    x86_emit8(e, 0x48);
+    x86_emit8(e, 0x89);
+    x86_emit8(e, 0x85 | ((reg & 7) << 3));
+    x86_emit32(e, -offset);
+}
+static void x86_mov_ptr_r64_r64(X86Emitter* e, X86Register addr, X86Register src) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x89);
+    x86_emit8(e, 0x00 | ((src & 7)<<3) | (addr & 7));
+}
+// Our IR definition: LOAD  dest, address. STORE address, value. means: dest = *(u64*)address.  *(u64*)address = value
+static void x86_mov_r64_ptr_r64(X86Emitter* e, X86Register dst, X86Register addr) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x8B);
+    x86_emit8(e, 0x00 | ((dst & 7)<<3) | (addr & 7));
+}
+static void x86_movzx_rax_al(X86Emitter* e) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x0F);
+    x86_emit8(e,0xB6);
+    x86_emit8(e,0xC0);
+}
+static void x86_neg_r64(X86Emitter* e, X86Register reg) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0xF7);
+    x86_emit8(e, 0xD8 | (reg & 7));
+}
+static void x86_not_r64(X86Emitter* e, X86Register reg) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0xF7);
+    x86_emit8(e, 0xD0 | (reg & 7));
+}
+// OR dst, src   (e.g., OR RAX, RCX)
+static void x86_or_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e, 0x48); // REX.W prefix for 64-bit
+    x86_emit8(e, 0x09); // Opcode: OR r/m64, r64
+    x86_emit8(e, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+static void x86_ret(X86Emitter* e) {
+    x86_emit8(e,0xC3);
+}
+// SAR reg, CL   (Shift Arithmetic Right by value in CL register)
+static void x86_sar_r64_cl(X86Emitter* e, X86Register reg) {
+    x86_emit8(e, 0x48); // REX.W prefix for 64-bit
+    x86_emit8(e, 0xD3); // Opcode: SAR r/m64, CL
+    x86_emit8(e, 0xF8 | (reg & 7)); // /7 extension: 0xC0 | (7 << 3) | reg
+}
+static void x86_setcc_al(X86Emitter* e, X86Condition cc) {
+    x86_emit8(e,0x0F);
+    x86_emit8(e,0x90 + cc);
+}
+// SHL reg, CL   (Shift Left by value in CL register)
+static void x86_shl_r64_cl(X86Emitter* e, X86Register reg) {
+    x86_emit8(e, 0x48); // REX.W prefix for 64-bit
+    x86_emit8(e, 0xD3); // Opcode: SHL r/m64, CL
+    x86_emit8(e, 0xE0 | (reg & 7)); // /4 extension: 0xC0 | (4 << 3) | reg
+}
+static void x86_sub_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x29);
+    x86_emit8(e, 0xC0 | ((src & 7)<<3) | (dst & 7));
+}
+static void x86_test_r64_r64(X86Emitter* e, X86Register a, X86Register b) {
+    x86_emit8(e,0x48);
+    x86_emit8(e,0x85);
+    x86_emit8(e, 0xC0 | ((b & 7)<<3) | (a & 7));
+}
+// XOR dst, src  (e.g., XOR RAX, RCX)
+static void x86_xor_r64_r64(X86Emitter* e, X86Register dst, X86Register src) {
+    x86_emit8(e, 0x48); // REX.W prefix for 64-bit
+    x86_emit8(e, 0x31); // Opcode: XOR r/m64, r64
+    x86_emit8(e, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}

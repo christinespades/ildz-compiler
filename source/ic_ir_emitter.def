@@ -1,0 +1,8 @@
+typedef void (*IREmitter)(const IRInstruction* inst, IRProgram* prog, JitBuffer* buf, u8** dest);
+
+#define X(op) [op] = emit_##op,
+static IREmitter g_ir_emitters[] =
+{
+    ir_opcode(X)
+};
+#undef X

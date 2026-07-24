@@ -1,0 +1,7 @@
+typedef struct
+{
+    const char* data;
+    u32 length;
+} StringView;
+StringView true_sv  = { .data = "true",  .length = 4 };
+StringView false_sv = { .data = "false", .length = 5 };

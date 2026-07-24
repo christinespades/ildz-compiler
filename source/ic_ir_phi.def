@@ -1,0 +1,63 @@
+static u32 ir_emit_phi(IRLowerContext* ctx, u32 left, u32 right)
+{
+    u32 dest = ir_new_vreg(ctx->prog);
+    IRInstruction inst =
+    {
+        .op = IR_OP_PHI,
+        .dest = dest,
+        .a =
+        {
+            .kind = OPERAND_VREG,
+            .vreg = left
+        },
+        .b =
+        {
+            .kind = OPERAND_VREG,
+            .vreg = right
+        }
+    };
+    ir_emit(ctx->prog, ctx->arena, inst);
+    return dest;
+}
+
+static void eliminate_phi_nodes(IRProgram* prog, Arena* arena)
+{
+    for(u32 b=0;b<prog->block_count;b++)
+    {
+        BasicBlock* block = prog->blocks[b];
+        u32 write_index = 0;
+        for(u32 i=0;i<block->count;i++)
+        {
+            IRInstruction inst = block->instructions[i];
+            if(inst.op != IR_OP_PHI)
+            {
+                block->instructions[write_index++] = inst;
+                continue;
+            }
+            // Insert copies into predecessors
+            for(u32 p=0;
+                p<block->predecessor_count;
+                p++)
+            {
+                BasicBlock* pred = block->predecessors[p];
+                u32 value =
+                    (p == 0)
+                    ? inst.a.vreg
+                    : inst.b.vreg;
+                IRInstruction copy =
+                {
+                    .op = IR_OP_COPY,
+                    .dest = inst.dest,
+                    .a =
+                    {
+                        .kind = OPERAND_VREG,
+                        .vreg = value
+                    }
+                };
+                ir_insert_before_end(pred, copy);
+            }
+            // Remove PHI
+        }
+        block->count = write_index;
+    }
+}

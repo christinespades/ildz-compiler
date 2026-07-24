@@ -1,9 +1,10 @@
 // Function Signature Declaration Processing ('fn')
+// Function Signature Declaration Processing ('fn')
 static bool handle_function_decl(unsigned long bytes_read, const char* buffer, Arena* arena, ASTNode* root_prog, ParserCtx* ctx) {
     loginfline("Processing function structure definition.");
     ctx->cursor += 2; // Skip "fn"
     
-    if (buffer[ctx->cursor] != ' ') {
+    if (ctx->cursor >= bytes_read || buffer[ctx->cursor] != ' ') {
         logerrline("Syntax Error: Expected space separation after 'fn' keyword declaration.");
         return false;
     }
@@ -20,6 +21,8 @@ static bool handle_function_decl(unsigned long bytes_read, const char* buffer, A
     ASTNode* fn_node = parse_identifier_and_create_node(bytes_read, buffer, arena, ctx, NODE_FUNCTION, false);
     if (!fn_node) return false;
 
+    // register_global_symbol links fn_node to root_prog->children automatically.
+    // DO NOT manually loop and append fn_node here again, or it creates a self-referential cycle!
     if (!register_global_symbol(fn_node, root_prog, ctx, true)) {
         return false;
     }
@@ -31,17 +34,19 @@ static bool handle_function_decl(unsigned long bytes_read, const char* buffer, A
     ctx->local_symbol_count = 0; // Reset for new scope
 
     // Argument Processing Loop
-    if (buffer[ctx->cursor] == ' ') {
+    if (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') {
         ctx->cursor++;
         while (ctx->cursor < bytes_read && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
             while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
-            if (buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') break;
+            if (ctx->cursor >= bytes_read || buffer[ctx->cursor] == '\n' || buffer[ctx->cursor] == '\r') break;
+
+            unsigned long start_cursor = ctx->cursor;
 
             // 1. Scan Arg Type
             StringView arg_type;
             arg_type.data = &buffer[ctx->cursor];
             arg_type.length = 0;
-            while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ') {
+            while (ctx->cursor < bytes_read && buffer[ctx->cursor] != ' ' && buffer[ctx->cursor] != '\n' && buffer[ctx->cursor] != '\r') {
                 arg_type.length++; ctx->cursor++;
             }
             
@@ -56,23 +61,27 @@ static bool handle_function_decl(unsigned long bytes_read, const char* buffer, A
             }
 
             // Register into local symbols
-            if (arg_id.length > 0 && ctx->local_symbol_count < MAX_LOCAL_SYMBOLS) {
-                LocalSymbol* local = &ctx->local_symbols[ctx->local_symbol_count++];
-                local->name = arg_id.data;
-                local->length = arg_id.length;
-                local->kind = VAR_LOCAL_PARAM;
+            if (arg_id.length > 0) {
+                if (!register_local_symbol(ctx, arg_id, arg_type, VAR_LOCAL_PARAM)) return false;
             }
 
             while (ctx->cursor < bytes_read && buffer[ctx->cursor] == ' ') ctx->cursor++;
-            if (buffer[ctx->cursor] == ',') ctx->cursor++;
+            if (ctx->cursor < bytes_read && buffer[ctx->cursor] == ',') ctx->cursor++;
+
+            // Safety check: force cursor advance if no progress was made to avoid infinite loops
+            if (ctx->cursor == start_cursor) {
+                ctx->cursor++;
+            }
         }
     }
 
     ctx->in_function_scope = true;
     ctx->total_paths = 1;
     ctx->returning_paths = 0;
+    
+    // Reset last_stmt to NULL so inner function statements attach to fn_node->children
+    ctx->last_stmt = NULL; 
 
-    // Direct StringView logging!
     loginfline("Handled header for ", return_type, " function ", ansi_italic(fn_node->lexeme), " taking ", ctx->local_symbol_count, " args on ");
     return true;
 }

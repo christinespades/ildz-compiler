@@ -1,0 +1,41 @@
+typedef struct {
+    u32 label;
+    u32 code_offset;
+} LabelLocation;
+
+static inline u32 ir_new_label(IRProgram* prog) {
+    return prog->next_label_id++;
+}
+
+static void jit_define_label(JitBuffer* buf, u32 id) {
+    buf->labels[id].id = id;
+    buf->labels[id].offset = buf->size;
+    buf->labels[id].defined = true;
+    if (id >= buf->label_count) {
+        buf->label_count = id + 1;
+    }
+}
+
+static void jit_patch_jump(JitBuffer* buf, u32 patch, u32 label) {
+    i32 target = (i32)buf->labels[label].offset;
+    i32 rel = target - (i32)(patch + 4);
+    *(i32*)(buf->bytes + patch) = rel;
+}
+
+static void jit_add_patch(JitBuffer* buf, u32 id, u32 offset) {
+    buf->patches[buf->patch_count++] = (JitPatch){ .id = id, .patch_offset = offset };
+}
+
+static void jit_patch_labels(JitBuffer* buf) {
+    for (u32 i = 0; i < buf->patch_count; i++) {
+        JitPatch* p = &buf->patches[i];
+        for (u32 j = 0; j < buf->label_count; j++) {
+            JitLabel* l = &buf->labels[j];
+            if (l->id == p->id) {
+                i32 rel = (i32)l->offset - (i32)(p->patch_offset + 4);
+                *(i32*)(buf->bytes + p->patch_offset) = rel;
+                break;
+            }
+        }
+    }
+}

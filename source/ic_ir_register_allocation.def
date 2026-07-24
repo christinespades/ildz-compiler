@@ -1,0 +1,202 @@
+typedef enum {
+    LOC_REGISTER,
+    LOC_STACK
+} LocationKind;
+typedef enum {
+    REG_RAX,
+    REG_RCX,
+    REG_RDX,
+    REG_R8,
+    REG_R9,
+    REG_R10,
+    REG_R11,
+    REG_COUNT
+} PhysicalRegister;
+typedef struct {
+    LocationKind kind;
+    union
+    {
+        PhysicalRegister reg;
+        i32 stack_slot;
+    };
+} Location;
+static X86Register allocatable_regs[] =
+{
+    X86_R12,
+    X86_RBX,
+    X86_RSI,
+    X86_RDI
+};
+typedef struct {
+    Location* locations;
+    u32 location_count;
+    u32 spill_count;
+} RegisterAllocation;
+#define MAX_ACTIVE 32
+typedef struct {
+    u32 parent;
+    u32 rank;
+} VRegClass;
+typedef struct {
+    u32 vreg;
+    u32 start;
+    u32 end;
+    bool defined;
+    bool spilled;
+    PhysicalRegister reg;
+    i32 stack_slot;
+} LiveInterval;
+typedef struct {
+    LiveInterval* active[REG_COUNT];
+    u32 active_count;
+    bool reg_used[REG_COUNT];
+    u32 next_stack_slot;
+    RegisterAllocation* result;
+} LinearScanAllocator;
+#define SPILL_SIZE 8
+static inline i32 spill_offset(i32 slot) { return (slot + 1) * SPILL_SIZE; }
+void build_live_intervals(IRProgram* prog, LiveInterval* intervals) {
+    // 1. Initialize intervals
+    for (u32 i = 0; i < prog->next_vreg_id; i++) {
+        intervals[i].vreg = i;
+        intervals[i].defined = false;
+        intervals[i].start = 0;
+        intervals[i].end = 0;
+        intervals[i].spilled = false;
+        intervals[i].reg = REG_COUNT;
+        intervals[i].stack_slot = -1;
+    }
+    u32 ip = 0; // Monotonic instruction index across blocks
+    for (u32 b = 0; b < prog->block_count; b++) {
+        BasicBlock* bb = prog->blocks[b];
+        if (!bb) continue;
+
+        for (u32 i = 0; i < bb->count; i++, ip++) {
+            IRInstruction* inst = &bb->instructions[i]; // Adjust if bb uses insts / count
+
+            // Destination operand
+            if (inst->dest.kind == OPERAND_VREG && inst->dest.vreg < prog->next_vreg_id) {
+                LiveInterval* iv = &intervals[inst->dest.vreg];
+                if (!iv->defined) {
+                    iv->defined = true;
+                    iv->start = ip;
+                    iv->end = ip;
+                }
+            }
+            // Operand A
+            if (inst->a.kind == OPERAND_VREG && inst->a.vreg < prog->next_vreg_id) {
+                LiveInterval* iv = &intervals[inst->a.vreg];
+                if (!iv->defined) {
+                    iv->defined = true;
+                    iv->start = 0;
+                }
+                if (ip > iv->end) iv->end = ip;
+            }
+            // Operand B
+            if (inst->b.kind == OPERAND_VREG && inst->b.vreg < prog->next_vreg_id) {
+                LiveInterval* iv = &intervals[inst->b.vreg];
+                if (!iv->defined) {
+                    iv->defined = true;
+                    iv->start = 0;
+                }
+                if (ip > iv->end) iv->end = ip;
+            }
+        }
+    }
+}
+static int compare_intervals(const void* a, const void* b) {
+    const LiveInterval* ia=a;
+    const LiveInterval* ib=b;
+    if(ia->start < ib->start) return -1;
+    if(ia->start > ib->start) return 1;
+    return 0;
+}
+static void expire_old_intervals(LinearScanAllocator* ls, LiveInterval* current) {
+    u32 write=0;
+    for(u32 i=0;i<ls->active_count;i++)
+    {
+        LiveInterval* iv=ls->active[i];
+        if(iv->end >= current->start)
+        {
+            ls->active[write++]=iv;
+            continue;
+        }
+        ls->reg_used[iv->reg]=false;
+    }
+    ls->active_count=write;
+}
+static PhysicalRegister allocate_register(LinearScanAllocator* ls) {
+    for(u32 i=0;i<REG_COUNT;i++)
+    {
+        if(!ls->reg_used[i])
+        {
+            ls->reg_used[i]=true;
+            return (PhysicalRegister)i;
+        }
+    }
+    return REG_COUNT;
+}
+
+static LiveInterval* choose_spill(LinearScanAllocator* ls) {
+    LiveInterval* victim=ls->active[0];
+    for(u32 i=1;i<ls->active_count;i++)
+    {
+        if(ls->active[i]->end > victim->end)
+            victim=ls->active[i];
+    }
+    return victim;
+}
+void linear_scan_allocate(IRProgram* prog, LiveInterval* intervals) {
+    LinearScanAllocator ls={0};
+    for(u32 i=0;i<prog->next_vreg_id;i++)
+    {
+        LiveInterval* current=&intervals[i];
+        if(!current->defined)
+            continue;
+        expire_old_intervals(
+            &ls,
+            current);
+        PhysicalRegister reg=
+            allocate_register(&ls);
+        if(reg!=REG_COUNT)
+        {
+            current->reg=reg;
+            ls.active[
+                ls.active_count++
+            ]=current;
+            continue;
+        }
+        LiveInterval* spill=
+            choose_spill(&ls);
+        if(spill->end > current->end)
+        {
+            current->reg=spill->reg;
+            spill->spilled = true;
+            spill->stack_slot = ls.next_stack_slot++;
+            spill->reg=REG_COUNT;
+            for(u32 j=0;j<ls.active_count;j++)
+            {
+                if(ls.active[j]==spill)
+                {
+                    ls.active[j]=current;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            current->spilled = true;
+            current->stack_slot = ls.next_stack_slot++;
+        }
+    }
+}
+static void load_vreg(X86Emitter* e, RegisterAllocation* ra, u32 vreg, X86Register dst) {
+    Location* loc = &ra->locations[vreg];
+    if(loc->kind == LOC_REGISTER) x86_mov_r64_r64(e, dst, allocatable_regs[loc->reg]);
+    else x86_mov_r64_m64(e, dst, spill_offset(loc->stack_slot));
+}
+static void store_vreg(X86Emitter* e, RegisterAllocation* ra, u32 vreg, X86Register src) {
+    Location* loc = &ra->locations[vreg];
+    if(loc->kind == LOC_REGISTER) x86_mov_r64_r64(e, allocatable_regs[loc->reg], src);
+    else x86_mov_m64_r64(e, spill_offset(loc->stack_slot), src);
+}

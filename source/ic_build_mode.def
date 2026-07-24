@@ -1,0 +1,5 @@
+#define ic_build_mode(X) \
+    X(IC_BUILD_MODE_JIT) \
+    X(IC_BUILD_MODE_EXE)
+
+DEFINE_ENUM(ICBuildMode, ic_build_mode)

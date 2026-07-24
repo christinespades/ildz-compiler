@@ -56,3 +56,11 @@ void* memory_move(void* dest, const void* src, unsigned int count) {
 
     return dest;
 }
+
+//memset
+void memory_zero(void* ptr, u64 size) {
+    u8* byte_ptr = (u8*)ptr;
+    for (u64 i = 0; i < size; i++) {
+        byte_ptr[i] = 0;
+    }
+}

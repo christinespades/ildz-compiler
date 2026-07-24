@@ -1,0 +1,32 @@
+#define ir_opcode(X) \
+    X(IR_OP_ADD) \
+    X(IR_OP_AND) \
+    X(IR_OP_ASSIGN) \
+    X(IR_OP_CALL) \
+    X(IR_OP_CMP_EQ) \
+    X(IR_OP_CMP_GE) \
+    X(IR_OP_CMP_GT) \
+    X(IR_OP_CMP_LE) \
+    X(IR_OP_CMP_LT) \
+    X(IR_OP_CMP_NE) \
+    X(IR_OP_COPY) \
+    X(IR_OP_DIV) \
+    X(IR_OP_IMM) \
+    X(IR_OP_JMP) \
+    X(IR_OP_JMP_IF_ZERO) \
+    X(IR_OP_LABEL) \
+    X(IR_OP_LOAD) \
+    X(IR_OP_MOD) \
+    X(IR_OP_MUL) \
+    X(IR_OP_NEG) \
+    X(IR_OP_NOP) \
+    X(IR_OP_NOT) \
+    X(IR_OP_OR) \
+    X(IR_OP_PHI) \
+    X(IR_OP_RETURN) \
+    X(IR_OP_SHL) \
+    X(IR_OP_SHR) \
+    X(IR_OP_STORE) \
+    X(IR_OP_SUB) \
+    X(IR_OP_XOR)
+DEFINE_ENUM(IROpcode, ir_opcode)

@@ -2,7 +2,7 @@ fn v hey
     str var
     u8 var2 eq 27
     var eq true
-    var plueq var2
+    var addeq var2
     print var
 
 struct Arena

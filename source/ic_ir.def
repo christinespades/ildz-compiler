@@ -1,0 +1,111 @@
+static BasicBlock* ir_new_block(IRProgram* prog, Arena* arena)
+{
+    BasicBlock* b = arena_alloc(arena,sizeof(BasicBlock));
+    memory_zero(b, sizeof(BasicBlock));
+    b->id = prog->block_count;
+    if(prog->block_count>=prog->block_capacity)
+    {
+        u32 newcap = prog->block_capacity ? prog->block_capacity*2 : 16;
+        BasicBlock** n = arena_alloc(arena,newcap*sizeof(BasicBlock*));
+        if(prog->blocks) memory_copy(n, prog->blocks, prog->block_count*sizeof(BasicBlock*));
+        prog->blocks = n;
+        prog->block_capacity = newcap;
+    }
+    prog->blocks[prog->block_count++] = b;
+    return b;
+}
+
+static inline u32 ir_new_vreg(IRProgram* prog) {
+    return prog->next_vreg_id++;
+}
+
+static void ir_emit(IRProgram* prog, Arena* arena, IRInstruction inst) {
+    BasicBlock* b = prog->current;
+    if(b->count>=b->capacity)
+    {
+        u32 newcap = b->capacity ? b->capacity*2 : 32;
+        IRInstruction* n =
+            arena_alloc(arena, newcap*sizeof(IRInstruction));
+        if(b->instructions)
+            memory_copy(n, b->instructions, b->count*sizeof(IRInstruction));
+        b->instructions=n;
+        b->capacity=newcap;
+    }
+    b->instructions[b->count++] = inst;
+}
+
+static void ir_insert_before_end(BasicBlock* block, IRInstruction inst)
+{
+    if(block->count >= block->capacity) return;
+    block->instructions[block->count++] = inst;
+}
+
+static void ir_add_predecessor(BasicBlock* block, BasicBlock* pred) {
+    if(block->predecessor_count >= block->predecessor_capacity) return;
+    block->predecessors[
+        block->predecessor_count++
+    ] = pred;
+}
+
+static inline u32 ir_emit_imm(IRProgram* prog, Arena* arena, i64 literal) {
+    u32 dest = ir_new_vreg(prog);
+    IRInstruction inst = {
+        .op = IR_OP_IMM,
+        .dest = dest,
+        .a = { .kind = OPERAND_INT, .imm_int = literal },
+        .b = { .kind = OPERAND_NONE }
+    };
+    ir_emit(prog, arena, inst);
+    return dest;
+}
+
+static inline u32 ir_emit_binop(IRProgram* prog, Arena* arena, IROpcode op, u32 src1_vreg, u32 src2_vreg) {
+    u32 dest = ir_new_vreg(prog);
+    IRInstruction inst = {
+        .op = op,
+        .dest = dest,
+        .a = { .kind = OPERAND_VREG, .vreg = src1_vreg },
+        .b = { .kind = OPERAND_VREG, .vreg = src2_vreg }
+    };
+    ir_emit(prog, arena, inst);
+    return dest;
+}
+static void ir_branch(IRProgram* prog, u32 cond_vreg, BasicBlock* t, BasicBlock* f) {
+    // Emit branch instruction using cond_vreg if needed
+    prog->current->true_edge = t;
+    prog->current->false_edge = f;
+}
+static void ir_jump(IRProgram* prog, BasicBlock* dst) {
+    prog->current->true_edge = dst;
+}
+static void ir_begin_block(IRProgram* prog, BasicBlock* b) {
+    prog->current = b;
+}
+static u32 ir_emit_incomplete_phi(IRLowerContext* ctx, BasicBlock* block, u32 variable_index, u32 initial_value) {
+    u32 dest = ir_new_vreg(ctx->prog);
+    IRInstruction inst =
+    {
+        .op = IR_OP_PHI,
+        .dest = dest,
+        .a =
+        {
+            .kind = OPERAND_VREG,
+            .vreg = initial_value
+        },
+        .b =
+        {
+            .kind = OPERAND_NONE
+        }
+    };
+    ir_emit(
+        ctx->prog,
+        ctx->arena,
+        inst);
+    PhiIncomplete* phi =
+        &block->incomplete_phis[
+            block->incomplete_phi_count++
+        ];
+    phi->variable_index = variable_index;
+    phi->phi_vreg = dest;
+    return dest;
+}

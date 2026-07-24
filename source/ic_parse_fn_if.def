@@ -21,7 +21,7 @@ static bool handle_function_body_if(unsigned long bytes_read, const char* buffer
     if (!root_prog->children) {
         root_prog->children = if_node;
     } else {
-        ctx->last_stmt->next = if_node;
+        if (ctx->last_stmt) ctx->last_stmt->next = if_node;
     }
     ctx->last_stmt = if_node;
 

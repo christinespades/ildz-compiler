@@ -1,0 +1,9 @@
+typedef struct {
+    IRKind kind;
+    union {
+        u32 vreg;       // Virtual register index (v0, v1, v2...)
+        i64 imm_int;    // Literal value
+        u64 imm_u64;             // Literal value (unsigned)
+        const char* symbol_name; // Function name / global symbol reference
+    };
+} IROperand;

@@ -19,6 +19,8 @@ static bool handle_function_body_return(
     bool is_bool_fn = symbol_match(return_type_sv, bl_sv);
     bool is_void_fn = symbol_match(return_type_sv, v_sv);
 
+    loginfline("Processing return for ", ansi_italic(return_type_sv), " function ", ansi_italic(ctx->current_fn_node->lexeme), " on ");
+
     ctx->cursor += 3; // Skip "ret"
 
     // Skip spaces
@@ -64,23 +66,30 @@ static bool handle_function_body_return(
             return false;
         }
 
-        StringView true_sv  = { .data = "true",  .length = 4 };
-        StringView false_sv = { .data = "false", .length = 5 };
-
+        loginfline("Extracted return expression lead token: '", token_sv, "'.");
         if (is_bool_fn && (symbol_match(token_sv, true_sv) || symbol_match(token_sv, false_sv))) {
             ASTNode* lit_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
             lit_node->type = NODE_LITERAL_BOOLEAN;
             lit_node->lexeme = token_sv;
             ret_node->children = lit_node;
-            loginfline("Parsed boolean return literal: ", token_sv);
+            loginfline("Parsed boolean return literal: '", token_sv, "'.");
         } else {
             StringView var_type = {0};
             bool found_locally = resolve_symbol_type(ctx, token_sv, NODE_IDENTIFIER, &var_type);
 
+            ASTNode* var_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
+            var_node->type = NODE_IDENTIFIER;
+            var_node->lexeme = token_sv;
+            ret_node->children = var_node;
+
             if (!found_locally && !symbol_exists_globally(token_sv)) {
-                logerrline("Compilation Error: Identifier '", token_sv, "' in return statement is unknown or out of scope.");
-                return false;
+                loginfline("Identifier '", token_sv, "' in return statement is unknown or out of scope. Registering it as an unknown symbol for later resolution.");
+                register_unknown_symbol(var_node, "function_scope", token_sv);
+                ctx->last_return_was_unknown_symbol = true;
+                return true;
             }
+
+            loginfline("Resolved identifier '", token_sv, "' with type: '", var_type, "'.");
 
             // Check if followed by "is in "
             unsigned long saved_cursor = ctx->cursor;
@@ -103,6 +112,7 @@ static bool handle_function_body_return(
 
             // ONLY delegate to handle_range_expression if function returns bool AND "is in" is present
             if (is_bool_fn && has_is_in) {
+                loginfline("Identified range membership test ('is in') in return statement.");
                 if (!handle_range_expression(bytes_read, buffer, arena, ctx, ret_node, token_sv)) {
                     return false;
                 }
@@ -115,13 +125,11 @@ static bool handle_function_body_return(
                                token_sv, "' is of type '", var_type, "'.");
                     return false;
                 }
-
-                ASTNode* var_node = (ASTNode*)arena_alloc(arena, sizeof(ASTNode));
-                var_node->type = NODE_IDENTIFIER;
-                var_node->lexeme = token_sv;
-                ret_node->children = var_node;
+                loginfline("Direct variable return value parsed: '", token_sv, "'.");
             }
         }
+    } else {
+        loginfline("Void return statement parsed without value.");
     }
 
     // 4. Attach Return Node to AST Chain
@@ -133,5 +141,7 @@ static bool handle_function_body_return(
     ctx->last_stmt = ret_node;
     ctx->returning_paths++;
 
+    loginflinergb("Successfully attached 'ret' node to AST chain. (Returning paths count: ", ctx->returning_paths, ")");
+    ctx->last_return_was_unknown_symbol = false;
     return true;
 }

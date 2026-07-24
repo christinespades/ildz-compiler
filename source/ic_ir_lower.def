@@ -1,0 +1,365 @@
+// Recursive AST to IR lowering function
+static u32 lower_ast_to_ir_internal(IRLowerContext* ctx, ASTNode* node) {
+    if (!node) return 0;
+    // Recursion guard
+    static _Thread_local int depth = 0;
+    depth++;
+    if (depth > 5000) {
+        logerr("Fatal Error: Maximum AST depth exceeded (Infinite loop / Cyclic AST).");
+        ExitProcess(1);
+    }
+    switch (node->type) {
+        case NODE_ASSIGNMENT: {
+            ASTNode* lhs = node->children;
+            ASTNode* rhs = lhs ? lhs->next : NULL;
+            if (!lhs || !rhs) {
+                logerrline("Lowering Error: Malformed assignment node.");
+                break;
+            }
+            loginf("[IR Lowering] Lowering assignment for target symbol: '", lhs->lexeme, "'");
+            // 1. Lower RHS expression first
+            u32 rhs_vreg = lower_ast_to_ir_internal(ctx, rhs);
+            loginf("[IR Lowering] RHS expression evaluated to vreg v", rhs_vreg);
+            // 2. Look up LHS existing variable vreg
+            SSAVariableEntry* variable = ssa_find_variable(&ctx->variables, lhs->lexeme.data, lhs->lexeme.length);
+            bool found_lhs = variable != NULL;
+            u32 lhs_vreg = found_lhs ? variable->current_vreg : 0;
+            if (!found_lhs) {
+                loginf("[IR Lowering] Variable '", lhs->lexeme, "' not previously declared. Initializing new entry.");
+            }
+            // 3. Resolve Compound Assignment Operator
+            IROpcode compound_op = IR_OP_ADD;
+            bool is_compound = false;
+            if (node->assign_op != OP_PLAIN_ASSIGNMENT) {
+                is_compound = true;
+                switch (node->assign_op) {
+                    case OP_ADD_ASSIGN: compound_op = IR_OP_ADD; break;
+                    case OP_SUB_ASSIGN: compound_op = IR_OP_SUB; break;
+                    case OP_MUL_ASSIGN: compound_op = IR_OP_MUL; break;
+                    case OP_DIV_ASSIGN: compound_op = IR_OP_DIV; break;
+                    default: is_compound = false; break;
+                }
+            } 
+            // Fallback lexeme check if assign_op wasn't populated
+            else if (node->lexeme.data && node->lexeme.length > 0) {
+                StringView lex = node->lexeme;
+                if ((lex.length == 2 && memory_compare(lex.data, "+=", 2) == 0) ||
+                    (lex.length == 5 && memory_compare(lex.data, "addeq", 5) == 0)) {
+                    compound_op = IR_OP_ADD; is_compound = true;
+                } else if ((lex.length == 2 && memory_compare(lex.data, "-=", 2) == 0) ||
+                           (lex.length == 5 && memory_compare(lex.data, "subeq", 5) == 0)) {
+                    compound_op = IR_OP_SUB; is_compound = true;
+                } else if ((lex.length == 2 && memory_compare(lex.data, "*=", 2) == 0) ||
+                           (lex.length == 5 && memory_compare(lex.data, "muleq", 5) == 0)) {
+                    compound_op = IR_OP_MUL; is_compound = true;
+                } else if ((lex.length == 2 && memory_compare(lex.data, "/=", 2) == 0) ||
+                           (lex.length == 5 && memory_compare(lex.data, "diveq", 5) == 0)) {
+                    compound_op = IR_OP_DIV; is_compound = true;
+                }
+            }
+            // 4. Emit BinOp if compound assignment
+            u32 final_val_reg = rhs_vreg;
+            if (is_compound) {
+                if (found_lhs) {
+                    final_val_reg = ir_emit_binop(ctx->prog, ctx->arena, compound_op, lhs_vreg, rhs_vreg);
+                    loginf("[IR Lowering] Emitted compound BinOp instruction ", enum_to_string(AssignmentOP, compound_op), " (v", lhs_vreg, " op v", rhs_vreg, ") -> v", final_val_reg);
+                } else {
+                    logerr("Compound assignment on undeclared variable ", ansi_italic(lhs->lexeme));
+                }
+            } else {
+                loginf("[IR Lowering] Simple assignment selected. Using direct RHS value from v", rhs_vreg);
+            }
+            ssa_set_variable(&ctx->variables, lhs->lexeme.data, lhs->lexeme.length, final_val_reg);
+            depth--;
+            return final_val_reg;
+        }
+        case NODE_BINARY_OP: {
+            ASTNode* left  = node->children;
+            ASTNode* right = left ? left->next : NULL;
+            u32 left_reg  = lower_ast_to_ir_internal(ctx, left);
+            u32 right_reg = lower_ast_to_ir_internal(ctx, right);
+            IROpcode op = IR_OP_ADD;
+            StringView lex = node->lexeme;
+            if (lex.length == 1) {
+                switch (lex.data[0]) {
+                    case '+': op = IR_OP_ADD; break;
+                    case '-': op = IR_OP_SUB; break;
+                    case '*': op = IR_OP_MUL; break;
+                    case '/': op = IR_OP_DIV; break;
+                    case '<': op = IR_OP_CMP_LT; break;
+                    case '>': op = IR_OP_CMP_GT; break;
+                    default: break;
+                }
+            } else if (lex.length == 2) {
+                if (lex.data[0] == '=' && lex.data[1] == '=') op = IR_OP_CMP_EQ;
+                else if (lex.data[0] == '!' && lex.data[1] == '=') op = IR_OP_CMP_NE;
+                else if (lex.data[0] == '<' && lex.data[1] == '=') op = IR_OP_CMP_LE;
+                else if (lex.data[0] == '>' && lex.data[1] == '=') op = IR_OP_CMP_GE;
+            }
+            u32 dest = ir_emit_binop(ctx->prog, ctx->arena, op, left_reg, right_reg);
+            loginf("[IR Lowering] Emitted binary op ", enum_to_string(IROpcode, op), " (v", dest, " = v", left_reg, ", v", right_reg);
+            depth--;
+            return dest;
+        }
+        case NODE_CALL: {
+            loginf("[IR Lowering] Lowering function call invocation: ", node->lexeme);
+            // 1. Lower all arguments in order
+            ASTNode* arg = node->children;
+            u32 arg_regs[32];
+            u32 arg_count = 0;
+            while (arg && arg_count < 32) {
+                arg_regs[arg_count++] = lower_ast_to_ir_internal(ctx, arg);
+                arg = arg->next;
+            }
+            // 2. Emit call instruction
+            u32 result_reg = ir_new_vreg(ctx->prog);
+            IRInstruction inst = {
+                .op = IR_OP_CALL,
+                .dest = result_reg,
+                .a = { 
+                    .kind = OPERAND_SYMBOL, 
+                    .symbol_name = node->lexeme.data
+                },
+                .b = { 
+                    .kind = OPERAND_IMM, 
+                    .imm_u64 = (u64)arg_count 
+                }
+            };
+            ir_emit(ctx->prog, ctx->arena, inst);
+            loginf("[IR Lowering] Emitted NODE_CALL ", ansi_italic(node->lexeme.data), " -> v", result_reg);
+            depth--;
+            return result_reg;
+        }
+        case NODE_FUNCTION: {
+            loginf("[IR Lowering] Lowering AST function definition declaration: '", node->lexeme, "'");
+            ASTNode* current = node->children;
+            // 1. Process parameters
+            while (current && current->type == NODE_IDENTIFIER) {
+                u32 param = ir_new_vreg(ctx->prog);
+                ssa_set_variable(&ctx->variables, node->lexeme.data, node->lexeme.length, param);
+                current = current->next;
+            }
+            // 2. Lower body statements
+            u32 last_reg = 0;
+            while (current) {
+                // STOP IF WE ACCIDENTALLY HIT A NESTED/SIBLING FUNCTION DEFINITION
+                if (current->type == NODE_FUNCTION) {
+                    break;
+                }
+                last_reg = lower_ast_to_ir_internal(ctx, current);
+                // STOP if we hit an explicit return inside this function!
+                if (current->type == NODE_RETURN) {
+                    break;
+                }
+                current = current->next;
+            }
+            depth--;
+            return last_reg;
+        }
+        case NODE_IDENTIFIER: {
+            loginf("[IR Lowering] Reading identifier '", ansi_italic(node->lexeme), "' lookup");
+            SSAVariableEntry* variable = ssa_find_variable(&ctx->variables, node->lexeme.data, node->lexeme.length);
+            if (variable)
+            {
+                loginf("[IR Lowering] Found identifier '", ansi_italic(node->lexeme), "' in vreg v", variable->current_vreg);
+                return variable->current_vreg;
+            }
+            loginf("[IR Lowering] Uninitialized variable lookup ('", ansi_italic(node->lexeme), "') — auto-initializing to 0");
+            u32 zero_reg = ir_emit_imm(ctx->prog, ctx->arena, 0);
+            ssa_set_variable(&ctx->variables, node->lexeme.data, node->lexeme.length, zero_reg);
+            depth--;
+            return zero_reg;
+        }
+        case NODE_IF:
+        {
+            ASTNode* condition = node->children;
+            ASTNode* then_body = condition ? condition->next : NULL;
+            ASTNode* else_body = then_body ? then_body->next : NULL;
+            BasicBlock* then_block = ir_new_block(ctx->prog,ctx->arena);
+            BasicBlock* else_block = else_body ? ir_new_block(ctx->prog,ctx->arena) : NULL;
+            BasicBlock* merge_block = ir_new_block(ctx->prog,ctx->arena);
+            u32 cond = lower_ast_to_ir_internal(ctx, condition);
+            ir_branch(ctx->prog, cond, then_block, else_block ? else_block : merge_block);
+            // Save state before branches
+            SSAState* before = arena_alloc(ctx->arena, sizeof(SSAState));
+            ssa_clone_state(ctx, before);
+            // THEN
+            ir_begin_block(ctx->prog, then_block);
+            lower_ast_to_ir_internal(ctx, then_body);
+            SSAState* after_then = arena_alloc(ctx->arena, sizeof(SSAState));
+            ssa_clone_state(ctx, after_then);
+            ir_jump(ctx->prog, merge_block);
+            // ELSE
+            if(else_block)
+            {
+                ssa_restore_state(ctx, before);
+                ir_begin_block(ctx->prog, else_block);
+                lower_ast_to_ir_internal(ctx, else_body);
+                SSAState* after_else = arena_alloc(ctx->arena, sizeof(SSAState));
+                ssa_clone_state(ctx, after_else);
+                ir_jump(ctx->prog, merge_block);
+                ir_begin_block(ctx->prog, merge_block);
+                ssa_merge_states(ctx, after_then, after_else);
+            }
+            else
+            {
+                // No else: false path keeps old values
+                ir_begin_block(ctx->prog, merge_block);
+                ssa_merge_states(ctx, after_then, before);
+            }
+            depth--;
+            return 0;
+        }
+        case NODE_LITERAL_NUMBER:
+        case NODE_LITERAL_INT: {
+            unsigned long long val = 0;
+            char num_buf[64] = {0};
+            string_view_cstr(node->lexeme, num_buf, sizeof(num_buf));
+            string_to_u64(num_buf, &val);
+            u32 dest = ir_emit_imm(ctx->prog, ctx->arena, (i64)val);
+            loginf("[IR Lowering] Emitted Immediate Integer load: ", val, " -> v", dest);
+            depth--;
+            return dest;
+        }
+        case NODE_PROGRAM: {
+            loginf("[IR Lowering] Entering NODE_PROGRAM node tree root...");
+            ASTNode* current = node->children;
+            u32 final_reg = 0;
+            while (current) {
+                final_reg = lower_ast_to_ir_internal(ctx, current);
+                // Stop lowering dead statements after a return instruction!
+                if (current->type == NODE_RETURN) {
+                    loginf("Stopped lowering inside NODE_PROGRAM due to a NODE_RETURN encountered");
+                    break;
+                }
+                current = current->next;
+            }
+            // Check if any return was emitted (checking the last instruction prevents duplicate returns)
+            bool already_has_return = false;
+            if (ctx->prog->current && ctx->prog->current->count > 0) {
+                u32 last_idx = ctx->prog->current->count - 1;
+                if (ctx->prog->current->instructions[last_idx].op == IR_OP_RETURN) {
+                    already_has_return = true;
+                }
+            }
+            if (ctx->prog->block_count > 0 && !already_has_return) {
+                loginf("[IR Lowering] Synthesizing terminal function return path with vreg v", final_reg);
+                IRInstruction return_inst = {
+                    .op = IR_OP_RETURN,
+                    .dest = 0,
+                    .a = { .kind = OPERAND_VREG, .vreg = final_reg },
+                    .b = { .kind = OPERAND_NONE }
+                };
+                ir_emit(ctx->prog, ctx->arena, return_inst);
+            }
+            depth--;
+            return final_reg;
+        }
+        case NODE_RETURN: {
+            loginf("[IR Lowering] Lowering explicit return statement (NODE_RETURN).");
+            u32 value = lower_ast_to_ir_internal(ctx, node->children);
+            IRInstruction inst = {
+                .op = IR_OP_RETURN,
+                .a = { .kind = OPERAND_VREG, .vreg = value }
+            };
+            ir_emit(ctx->prog, ctx->arena, inst);
+            loginf("[IR Lowering] Emitted IR_OP_RETURN using v", value);
+            depth--;
+            return value;
+        }
+        default: {
+            if (node->children) lower_ast_to_ir_internal(ctx, node->children);
+            depth--;
+            return 0;
+        }
+        case NODE_UNARY_EXPR: {
+            loginf("[IR Lowering] Lowering unary op invocation: ", node->lexeme);
+            ASTNode* operand = node->children;
+            u32 src_reg = lower_ast_to_ir_internal(ctx, operand);
+            u32 dest_reg = ir_new_vreg(ctx->prog);
+            IROpcode op = IR_OP_NEG;
+            if (node->lexeme.length == 1 && node->lexeme.data[0] == '!') {
+                op = IR_OP_NOT;
+            }
+            IRInstruction inst = {
+                .op = op,
+                .dest = dest_reg,
+                .a = { .kind = OPERAND_VREG, .vreg = src_reg },
+                .b = { .kind = OPERAND_NONE }
+            };
+            ir_emit(ctx->prog, ctx->arena, inst);
+            depth--;
+            return dest_reg;
+        }
+        case NODE_VAR_DECL: {
+            // node->lexeme is the variable name (e.g., "x")
+            // node->children is the initializer AST expression (e.g., "23")
+            ASTNode* init_expr = node->children;
+            loginf("[IR Lowering] Processing Variable Declaration: '", node->lexeme, "'");
+            u32 init_reg = 0;
+            if (init_expr) {
+                init_reg = lower_ast_to_ir_internal(ctx, init_expr);
+            } else {
+                init_reg = ir_emit_imm(ctx->prog, ctx->arena, 0);
+            }
+            ssa_set_variable(&ctx->variables, node->lexeme.data, node->lexeme.length, init_reg);
+            loginf("[IR Lowering] Declared variable '", node->lexeme, "' -> v", init_reg);
+            depth--;
+            return init_reg;
+        }
+        case NODE_WHILE:
+        {
+            loginf("[SSA] Lowering while loop.");
+            ASTNode* condition = node->children;
+            ASTNode* body = condition ? condition->next : NULL;
+            BasicBlock* header = ir_new_block(ctx->prog, ctx->arena);
+            BasicBlock* body_block = ir_new_block(ctx->prog, ctx->arena);
+            BasicBlock* exit_block = ir_new_block(ctx->prog, ctx->arena);
+            // State before entering loop
+            SSAState* before_loop = arena_alloc(ctx->arena, sizeof(SSAState));
+            ssa_clone_state(ctx, before_loop);
+            // Jump into header
+            ir_jump(ctx->prog, header);
+            // HEADER
+            ir_begin_block(ctx->prog, header);
+            // Create incomplete PHIs
+            SSAIterator it;
+            ssa_iterator_begin(before_loop, &it);
+            while(ssa_iterator_next(&it))
+            {
+                u32 phi = ir_emit_incomplete_phi(ctx, header, it.index, it.entry->current_vreg);
+                ssa_set_variable(&ctx->variables, it.name.data, it.name.length, phi);
+            }
+            // Loop condition
+            u32 cond = lower_ast_to_ir_internal(ctx, condition);
+            ir_branch(ctx->prog, cond, body_block, exit_block);
+            ir_begin_block(ctx->prog, body_block);
+            lower_ast_to_ir_internal(ctx, body);
+            // Save backedge values
+            SSAState* after_body = arena_alloc(ctx->arena, sizeof(SSAState));
+            ssa_clone_state(ctx, after_body);
+            // Back to header
+            ir_jump(ctx->prog, header);
+            ssa_complete_loop_phis(ctx, header, after_body);
+            ir_begin_block(ctx->prog, exit_block);
+            // Variables leaving the loop are the PHI versions
+            depth--;
+            return 0;
+        }
+    }
+    depth--;
+    return 0;
+}
+
+// Fixed Entry Point API (Safe Initialization Wrapper)
+u32 ir_lower_ast(IRLowerContext* ctx, ASTNode* root) {
+    if (!ctx || !root) return 0;
+    // Clear state ONCE at entry level
+    if (ctx->prog) {
+        ctx->prog->block_count = 0;
+        ctx->prog->next_vreg_id = 0;
+        ctx->prog->next_label_id = 0;
+    }
+    memory_zero(&ctx->variables, sizeof(ctx->variables));
+    return lower_ast_to_ir_internal(ctx, root);
+}

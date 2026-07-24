@@ -1,17 +1,21 @@
-typedef struct
-{
+typedef struct {
     char* memory;
     size_t capacity;
     size_t offset;
 } Arena;
-
-void* arena_alloc(Arena* arena, size_t size)
-{
-    if (arena->offset + size > arena->capacity)
-        return NULL;
-
+Arena g_compiler_arena;
+void* arena_alloc(Arena* arena, size_t size) {
+    if (arena->offset + size > arena->capacity) return NULL;
     void* ptr = arena->memory + arena->offset;
     arena->offset += size;
-
     return ptr;
+}
+char* arena_string_copy(Arena* arena, const char* str) {
+    if (!str) return NULL;
+    size_t len = string_length(str);
+    char* copy = (char*)arena_alloc(arena, len + 1); // +1 for null terminator
+    if (!copy) return NULL; // Arena full
+    memory_copy(copy, str, len);
+    copy[len] = '\0';
+    return copy;
 }

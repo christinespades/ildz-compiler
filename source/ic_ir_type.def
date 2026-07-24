@@ -1,0 +1,7 @@
+
+typedef enum {
+    IR_TYPE_I8,
+    IR_TYPE_I16,
+    IR_TYPE_I32,
+    IR_TYPE_I64
+} IRType;

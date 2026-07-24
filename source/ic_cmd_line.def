@@ -1,0 +1,146 @@
+static bool match_flag(LPWSTR* cmd_ptr, const wchar_t* flag_str)
+{
+    LPWSTR cmd = *cmd_ptr;
+    int i = 0;
+    while (flag_str[i] != L'\0') {
+        if (cmd[i] != flag_str[i]) return false;
+        i++;
+    }
+    wchar_t next = cmd[i];
+    if (next == L' ' || next == L'\t' || next == L'\0') {
+        *cmd_ptr += i;
+        return true;
+    }
+    return false;
+}
+
+// Helper to derive the program name (.exe) and store project root path
+static void derive_output_name(const char* root_prog_path)
+{
+    int last_dot = -1;
+    int path_len = 0;
+    while (root_prog_path[path_len] != '\0') {
+        if (root_prog_path[path_len] == '.') {
+            last_dot = path_len;
+        }
+        path_len++;
+    }
+
+    int copy_len = (last_dot != -1) ? last_dot : path_len;
+    int j = 0;
+    for (; j < copy_len && j < (MAX_PATH - 5); j++) {
+        g_ic_program_path[j] = root_prog_path[j];
+    }
+
+    // Append ".exe"
+    g_ic_program_path[j++] = '.';
+    g_ic_program_path[j++] = 'e';
+    g_ic_program_path[j++] = 'x';
+    g_ic_program_path[j++] = 'e';
+    g_ic_program_path[j]   = '\0';
+    loginfv("Derived output program name: ", g_ic_program_path);
+
+    // Copy to g_project_root_path & get parent dir
+    int i = 0;
+    while (root_prog_path[i] != '\0' && i < (MAX_PATH - 1)) {
+        g_project_root_path[i] = root_prog_path[i];
+        i++;
+    }
+    g_project_root_path[i] = '\0';
+    path_get_parent_dir(g_project_root_path);
+}
+
+void parse_command_line_args(char* root_prog_path, int root_prog_path_size)
+{
+    bool found_target = false;
+    LPWSTR cmd = GetCommandLineW();
+
+    char debug_cmd[4096] = {0};
+    WideCharToMultiByte(65001, 0, cmd, -1, debug_cmd, sizeof(debug_cmd), NULL, NULL);
+    loginfv("Raw command line: ", debug_cmd);
+
+    // Skip executable name
+    if (*cmd == L'"') {
+        cmd++;
+        while (*cmd && *cmd != L'"') cmd++;
+        if (*cmd == L'"') cmd++;
+    } else {
+        while (*cmd && *cmd != L' ' && *cmd != L'\t') cmd++;
+    }
+    loginfv("After executable skip");
+
+    while (*cmd)
+    {
+        // Skip whitespace
+        while (*cmd == L' ' || *cmd == L'\t') cmd++;
+        if (*cmd == L'\0') break;
+
+        // Parse flags starting with '-'
+        if (*cmd == L'-')
+        {
+            cmd++; // Skip '-'
+            loginfv("Found flag operator '-'");
+
+            if (match_flag(&cmd, L"exelaunch")) {
+                g_build_mode_exe_launch_after_build = true;
+                loginfv("EXE launch after build flag enabled");
+                continue;
+            }
+            else if (match_flag(&cmd, L"exe")) {
+                g_ic_build_mode = IC_BUILD_MODE_EXE;
+                loginfv("EXE build mode flag enabled");
+                continue;
+            }
+            else if (match_flag(&cmd, L"v")) {
+                g_ic_log_verbose = true;
+                loginfv("Verbose flag enabled");
+                continue;
+            }
+        }
+
+        // Target file path argument
+        loginfv("Found target file argument");
+        if (*cmd == L'"')
+        {
+            cmd++; // skip opening quote
+            LPWSTR start = cmd;
+            while (*cmd && *cmd != L'"') cmd++;
+            int length = (int)(cmd - start);
+            WideCharToMultiByte(65001, 0, start, length, root_prog_path, root_prog_path_size, NULL, NULL);
+            root_prog_path[length] = '\0';
+            if (*cmd == L'"') cmd++; // skip closing quote
+        }
+        else
+        {
+            // Find end of current space-delimited word
+            LPWSTR start = cmd;
+            while (*cmd && *cmd != L' ' && *cmd != L'\t') cmd++;
+            int length = (int)(cmd - start);
+
+            int converted_bytes = WideCharToMultiByte(65001, 0, start, length, root_prog_path, root_prog_path_size - 1, NULL, NULL);
+            if (converted_bytes <= 0) {
+                logerrline("Fatal Process Error: Failed to convert Unicode path.");
+                ExitProcess(1);
+            }
+            root_prog_path[converted_bytes] = '\0';
+        }
+
+        // Clean up trailing quote if present
+        int len = 0;
+        while (root_prog_path[len]) len++;
+        if (len > 0 && root_prog_path[len - 1] == '"') {
+            root_prog_path[len - 1] = '\0';
+        }
+
+        loginfv("Resolved target path: ", root_prog_path);
+        found_target = true;
+
+        derive_output_name(root_prog_path);
+    }
+
+    if (!found_target)
+    {
+        logerrline("Fatal Process Error: No target file path argument found.");
+        ExitProcess(1);
+    }
+}
